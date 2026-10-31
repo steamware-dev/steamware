@@ -1,0 +1,7 @@
+# Authored with LF, including the NSIS hook and the injected JS: those files are read as-is at runtime,
+# so a CRLF conversion from a Windows checkout is a real build difference.
+* text=auto eol=lf
+
+*.png binary
+*.ico binary
+*.icns binary

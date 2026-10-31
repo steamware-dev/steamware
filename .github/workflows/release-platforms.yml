@@ -1,0 +1,236 @@
+name: Build platform installers
+
+# Native runners on purpose: a .dmg needs macOS, a .deb/.rpm needs Linux, and the Windows ARM64
+# bundle needs an ARM64 Windows host. Cross-compiling any of these from one machine produces
+# something that cannot be smoke-tested, which is the opposite of what this workflow is for.
+#
+# Each job asserts the artifact exists AND carries the architecture it claims, so a green run
+# means the .deb, .rpm, Intel .dmg and Apple Silicon .dmg were all really produced.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux x86_64 (deb + rpm)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tauri's system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            patchelf \
+            rpm \
+            file
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Build .deb and .rpm
+        run: npm run tauri build -- --bundles deb,rpm
+
+      - name: Verify the .deb and the .rpm are both there and are amd64/x86_64
+        run: |
+          set -euo pipefail
+          cd src-tauri/target/release/bundle
+          ls -l deb rpm
+          deb="$(find deb -maxdepth 1 -name '*.deb' | head -1)"
+          rpm="$(find rpm -maxdepth 1 -name '*.rpm' | head -1)"
+          if [ -z "$deb" ]; then echo "::error::no .deb was produced"; exit 1; fi
+          if [ -z "$rpm" ]; then echo "::error::no .rpm was produced"; exit 1; fi
+          deb_arch="$(dpkg-deb -f "$deb" Architecture)"
+          rpm_arch="$(rpm -qp --qf '%{ARCH}' "$rpm")"
+          dpkg-deb -f "$deb" Package Version Architecture
+          echo "rpm: $(basename "$rpm") arch=$rpm_arch"
+          if [ "$deb_arch" != "amd64" ]; then echo "::error::.deb is $deb_arch, expected amd64"; exit 1; fi
+          if [ "$rpm_arch" != "x86_64" ]; then echo "::error::.rpm is $rpm_arch, expected x86_64"; exit 1; fi
+
+      - name: Checksums
+        run: |
+          cd src-tauri/target/release/bundle
+          sha256sum deb/*.deb rpm/*.rpm > "$GITHUB_WORKSPACE/SHA256SUMS-linux.txt"
+          cat "$GITHUB_WORKSPACE/SHA256SUMS-linux.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: steamware-linux-deb-rpm
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
+            SHA256SUMS-linux.txt
+
+  macos:
+    name: macOS (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            cpu: x86_64
+            arch: intel
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            cpu: arm64
+            arch: apple-silicon
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.target }}
+
+      - run: npm ci
+
+      - name: Build .app and .dmg
+        run: npm run tauri build -- --target ${{ matrix.target }} --bundles app,dmg
+
+      - name: Verify the .app and the .dmg, and that this build is ${{ matrix.cpu }}
+        run: |
+          set -euo pipefail
+          cd "src-tauri/target/${{ matrix.target }}/release/bundle"
+          app="$(find macos -maxdepth 1 -name '*.app' | head -1)"
+          dmg="$(find dmg -maxdepth 1 -name '*.dmg' | head -1)"
+          if [ -z "$app" ]; then echo "::error::no .app was produced"; exit 1; fi
+          if [ -z "$dmg" ]; then echo "::error::no .dmg was produced"; exit 1; fi
+          binary="$app/Contents/MacOS/Steamware"
+          archs="$(lipo -archs "$binary")"
+          echo "app: $(basename "$app")"
+          echo "dmg: $(basename "$dmg")"
+          echo "binary architectures: $archs"
+          # A universal binary would satisfy both jobs, so the exact match is what is checked:
+          # one job must be Intel-only and the other Apple Silicon-only.
+          if [ "$archs" != "${{ matrix.cpu }}" ]; then
+            echo "::error::expected a single ${{ matrix.cpu }} binary, got: $archs"
+            exit 1
+          fi
+          # The image itself, not just its presence: a truncated .dmg fails here.
+          hdiutil verify "$dmg"
+
+      - name: Checksums
+        run: |
+          cd "src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+          shasum -a 256 ./*.dmg > "$GITHUB_WORKSPACE/SHA256SUMS-macos-${{ matrix.arch }}.txt"
+          cat "$GITHUB_WORKSPACE/SHA256SUMS-macos-${{ matrix.arch }}.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: steamware-macos-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            SHA256SUMS-macos-${{ matrix.arch }}.txt
+
+  windows-x64:
+    name: Windows x64 (NSIS)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Build NSIS installer
+        run: npm run tauri build -- --bundles nsis
+
+      - name: Checksums
+        shell: bash
+        run: |
+          cd src-tauri/target/release/bundle/nsis
+          sha256sum ./*.exe > "$GITHUB_WORKSPACE/SHA256SUMS-windows-x64.txt"
+          cat "$GITHUB_WORKSPACE/SHA256SUMS-windows-x64.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: steamware-windows-x64
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            SHA256SUMS-windows-x64.txt
+
+  windows-arm64:
+    name: Windows ARM64 (NSIS)
+    # Public preview runner. If it is unavailable to this repository the job fails on its own and
+    # leaves the four packages above untouched.
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Build NSIS installer
+        run: npm run tauri build -- --bundles nsis
+
+      - name: Checksums
+        shell: bash
+        run: |
+          cd src-tauri/target/release/bundle/nsis
+          sha256sum ./*.exe > "$GITHUB_WORKSPACE/SHA256SUMS-windows-arm64.txt"
+          cat "$GITHUB_WORKSPACE/SHA256SUMS-windows-arm64.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: steamware-windows-arm64
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            SHA256SUMS-windows-arm64.txt

@@ -1,0 +1,3977 @@
+/*
+ * Steamware design system.
+ *
+ * Ported one-for-one from the WPF token dictionary, which is the reason the numbers here look oddly
+ * specific: the surface ladder was tuned so a card reads as a card from its fill alone, no stroke is ever
+ * louder than the fill it surrounds, and the radius scale is the small readable set (4/5/6/8/10/12) rather
+ * than a continuum. The only runtime inputs are `--accent` and `data-theme`; everything else derives.
+ */
+
+:root {
+  --accent: #8b5cf6;
+  --accent-bright: color-mix(in srgb, var(--accent) 72%, white);
+  --accent-wash: color-mix(in srgb, var(--accent) 16%, transparent);
+  --accent-wash-strong: color-mix(in srgb, var(--accent) 27%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 42%, transparent);
+
+  --page: #17181e;
+  --text: #e5e7eb;
+  --text-strong: #d1d5db;
+  --text-2: #9ca3af;
+  --muted: #6b7280;
+  --disabled: #4b5563;
+
+  --surface-subtle: rgba(255, 255, 255, 0.028);
+  --surface: rgba(255, 255, 255, 0.05);
+  --surface-raised: rgba(255, 255, 255, 0.082);
+  --surface-strong: rgba(255, 255, 255, 0.13);
+  --hairline: rgba(255, 255, 255, 0.06);
+  --stroke: rgba(255, 255, 255, 0.1);
+
+  --panel: #1c1c22;
+  --panel-deep: #14141c;
+  --scrim: rgba(0, 0, 0, 0.6);
+
+  --ok: #34d399;
+  --ok-wash: rgba(34, 197, 94, 0.13);
+  --warn: #fbbf24;
+  --warn-wash: rgba(245, 158, 11, 0.13);
+  --err: #f87171;
+  --err-wash: rgba(248, 113, 113, 0.13);
+  --info: #60a5fa;
+  --info-wash: rgba(96, 165, 250, 0.13);
+  --gold: #d6b36b;
+  --gold-fill: #3a3320;
+
+  --r-xs: 4px;
+  --r-sm: 5px;
+  --r-md: 6px;
+  --r-lg: 8px;
+  --r-xl: 10px;
+  --r-2xl: 12px;
+  --r-pill: 999px;
+
+  --rail: 190px;
+  --titlebar: 38px;
+  --shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --page: #f4f5f9;
+  --text: #1f2430;
+  --text-strong: #2b3240;
+  --text-2: #475069;
+  --muted: #5b6472;
+  --disabled: #9ca3af;
+
+  --surface-subtle: rgba(15, 23, 42, 0.028);
+  --surface: rgba(15, 23, 42, 0.045);
+  --surface-raised: rgba(15, 23, 42, 0.075);
+  --surface-strong: rgba(15, 23, 42, 0.11);
+  --hairline: rgba(15, 23, 42, 0.08);
+  --stroke: rgba(15, 23, 42, 0.14);
+
+  --panel: #ffffff;
+  --panel-deep: #eef0f6;
+  --scrim: rgba(15, 23, 42, 0.35);
+
+  --shadow: 0 18px 48px rgba(15, 23, 42, 0.16);
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text);
+  font-family: "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+::selection {
+  background: var(--accent-wash-strong);
+  color: var(--text);
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--surface-strong);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text) 32%, transparent);
+  background-clip: padding-box;
+}
+
+/* ── Shell ──────────────────────────────────────────────────────────────────────────────────────── */
+
+.app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--page);
+}
+
+.titlebar {
+  height: var(--titlebar);
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-left: 14px;
+  background: transparent;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+/* The real product mark — the same bytes the window icon is rendered from. */
+.brand-mark {
+  flex: none;
+  object-fit: contain;
+  user-select: none;
+}
+
+.titlebar .brand-mark {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+
+.titlebar .name {
+  font-size: 12px;
+  color: var(--text-2);
+  letter-spacing: 0.2px;
+}
+
+.titlebar .spacer {
+  flex: 1;
+  height: 100%;
+}
+
+.win-controls {
+  display: flex;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.win-controls button {
+  width: 46px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  display: grid;
+  place-items: center;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.win-controls button:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.win-controls button.close:hover {
+  background: #e81123;
+  color: #fff;
+}
+
+.body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* ── Rail ──────────────────────────────────────────────────────────────────────────────────────── */
+
+.rail {
+  width: var(--rail);
+  flex: 0 0 var(--rail);
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0 10px;
+  min-height: 0;
+}
+
+.rail .group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.rail .footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-top: 8px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  margin: 0 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-lg);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: left;
+  position: relative;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.nav-item svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  stroke-width: 1.6;
+}
+
+.nav-item:hover {
+  background: var(--surface);
+  color: var(--text-strong);
+}
+
+.nav-item.active {
+  background: var(--accent-wash);
+  color: var(--text);
+}
+
+.nav-item.active svg {
+  color: var(--accent-bright);
+}
+
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+
+.nav-item .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--surface-strong);
+  margin-left: auto;
+}
+
+.nav-item .soon {
+  margin-left: auto;
+  font-size: 9.5px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--surface);
+  border-radius: var(--r-pill);
+  padding: 1px 6px;
+}
+
+.nav-item .count {
+  margin-left: auto;
+  min-width: 18px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--accent-wash-strong);
+  color: var(--accent-bright);
+  font-size: 10.5px;
+  display: grid;
+  place-items: center;
+}
+
+/* ── Page frame ───────────────────────────────────────────────────────────────────────────────── */
+
+.page {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 14px 24px 46px;
+  position: relative;
+}
+
+.page-inner {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding-top: 6px;
+}
+
+.page-head h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+
+/* The Plugin page's own title is 24px in the WPF build; every other page is 22px. */
+.page-head.big h1 {
+  font-size: 24px;
+}
+
+.page-head .sub {
+  margin: 3px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.page-head .actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 2px;
+}
+
+.section-head h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+}
+
+.section-head .right {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.section-note {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ── Cards ────────────────────────────────────────────────────────────────────────────────────── */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2xl);
+}
+
+.card.pad {
+  padding: 16px;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.stat {
+  padding: 14px 16px;
+  border-radius: var(--r-xl);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  text-align: left;
+  transition: background 0.14s ease, border-color 0.14s ease, transform 0.14s ease;
+}
+
+.stat:hover {
+  background: var(--surface-raised);
+  border-color: var(--stroke);
+}
+
+.stat .label {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.2px;
+}
+
+.stat .value {
+  font-size: 25px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat .value.accent {
+  color: var(--accent-bright);
+}
+
+.stat .foot {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--r-lg);
+  border: 0;
+  background: transparent;
+  text-align: left;
+  width: 100%;
+}
+
+.row:hover {
+  background: var(--surface);
+}
+
+.row .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.row .title {
+  font-size: 12.5px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row .meta {
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 8px;
+  background: var(--err);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 16%, transparent);
+}
+
+.status-dot.on {
+  background: #33cc33;
+  box-shadow: 0 0 0 3px rgba(51, 204, 51, 0.16);
+}
+
+/* ── Controls ─────────────────────────────────────────────────────────────────────────────────── */
+
+/* Discord's community pill: a quiet surface with Discord's own blurple on the mark and label. */
+.discord-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  color: #5865f2;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.discord-pill svg {
+  width: 16px;
+  height: 16px;
+}
+
+.discord-pill:hover {
+  background: var(--surface-raised);
+  border-color: #5865f2;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 13px;
+  border-radius: var(--r-lg);
+  border: 1px solid transparent;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease, opacity 0.12s ease;
+}
+
+.btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.btn:hover {
+  background: var(--surface-strong);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 70%, black);
+  /* Per-palette ink from applyTheme: pale accents (blossom, mint, sky) would otherwise carry white on white. */
+  color: var(--accent-ink, #fff);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.14) inset;
+}
+
+.btn.primary:hover {
+  background: color-mix(in srgb, var(--accent) 88%, white);
+  color: var(--accent-ink, #fff);
+}
+
+.btn.ghost {
+  background: transparent;
+  border-color: var(--stroke);
+  color: var(--text-strong);
+}
+
+.btn.ghost:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.btn.small {
+  height: 26px;
+  padding: 0 9px;
+  font-size: 11.5px;
+  border-radius: var(--r-md);
+}
+
+.btn.danger {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--err) 40%, transparent);
+  color: var(--err);
+}
+
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-2);
+}
+
+.icon-btn:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.icon-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label {
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.field .hint {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+input[type="text"],
+input[type="url"],
+input[type="number"],
+select {
+  height: 33px;
+  padding: 0 10px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--hairline);
+  background: var(--surface-subtle);
+  color: var(--text);
+  font-size: 12.5px;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+input[type="text"]:focus,
+input[type="url"]:focus,
+input[type="number"]:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent-line);
+  background: var(--surface);
+}
+
+input::placeholder {
+  color: var(--muted);
+}
+
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+.search svg {
+  position: absolute;
+  left: 11px;
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.search input {
+  width: 100%;
+  height: 33px;
+  padding-left: 33px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--hairline);
+  background: var(--surface-subtle);
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.search input:focus {
+  outline: none;
+  border-color: var(--accent-line);
+  background: var(--surface);
+}
+
+.chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.chip {
+  height: 26px;
+  padding: 0 11px;
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 11.5px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.chip:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.chip.active {
+  background: var(--accent-wash-strong);
+  color: var(--text);
+  border-color: var(--accent-line);
+}
+
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border-radius: var(--r-lg);
+  background: var(--surface-subtle);
+  border: 1px solid var(--hairline);
+}
+
+.seg button {
+  height: 25px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11.5px;
+}
+
+.seg button.active {
+  background: var(--surface-strong);
+  color: var(--text);
+}
+
+/* The accent gallery, two rows of thirteen: Steamware's own palette, then the muted rainbow steps beside it.
+ * A grid rather than a wrapping strip so the rows are always even, however wide the window is, and so the
+ * description above it keeps the whole width of the card. */
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(13, 24px);
+  gap: 8px;
+}
+
+.swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  padding: 0;
+  position: relative;
+}
+
+.swatch.active {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--page) inset;
+}
+
+/* ── Grids and covers ────────────────────────────────────────────────────────────────────────── */
+
+.grid {
+  display: grid;
+  gap: 13px;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+}
+
+.tile {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tile .art {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 460 / 215;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.tile.capsule .art {
+  aspect-ratio: 231 / 87;
+}
+
+.tile:hover .art {
+  transform: translateY(-2px);
+  border-color: var(--accent-line);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+}
+
+.tile .art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.tile .art .fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 11px;
+  background: linear-gradient(145deg, var(--surface-raised), var(--surface-subtle));
+}
+
+/* The game's name is the card's title, so it is drawn as one. It used to be the quietest thing on the card —
+   11.5px in the secondary colour — while the two stat boxes beneath it carried 13px at weight 650, which made
+   a row of scores read as the content and the names as captions to it. */
+.tile .name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tile .sub {
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: -4px;
+}
+
+.tile .badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 1px 6px;
+  font-size: 9.5px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  border-radius: var(--r-sm);
+  background: rgba(10, 10, 14, 0.72);
+  color: var(--gold);
+  backdrop-filter: blur(4px);
+}
+
+/* ── Fix cards ──────────────────────────────────────────────────────────────────────────────── */
+
+.fix-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+}
+
+.fix-card {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.fix-card:hover {
+  border-color: var(--stroke);
+  background: var(--surface-raised);
+}
+
+.fix-card .art {
+  aspect-ratio: 231 / 87;
+  background: var(--panel-deep);
+  position: relative;
+}
+
+.fix-card .art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.fix-card .content {
+  padding: 9px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.fix-card .name {
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fix-card .tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.tag {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 1px 5px;
+  border-radius: var(--r-xs);
+  background: var(--surface-strong);
+  color: var(--text-2);
+}
+
+.tag.online {
+  background: var(--ok-wash);
+  color: var(--ok);
+}
+.tag.bypass {
+  background: var(--warn-wash);
+  color: var(--warn);
+}
+.tag.hypervisor {
+  background: var(--info-wash);
+  color: var(--info);
+}
+
+.fix-card .foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.fix-card .size {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.fix-card .foot .btn {
+  margin-left: auto;
+}
+
+/* ── Drop zone ──────────────────────────────────────────────────────────────────────────────── */
+
+.dropzone {
+  border: 1px dashed color-mix(in srgb, var(--text) 16%, transparent);
+  border-radius: var(--r-2xl);
+  background: var(--surface-subtle);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.dropzone:hover,
+.dropzone.over {
+  border-color: var(--accent-line);
+  background: var(--accent-wash);
+}
+
+.dropzone .drop-title {
+  font-size: 12.5px;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.dropzone .drop-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.dropzone .link-row {
+  display: flex;
+  gap: 14px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--accent-bright);
+}
+
+.dropzone .link-row button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  font-size: 11.5px;
+}
+
+.dropzone .link-row button:hover {
+  text-decoration: underline;
+}
+
+.dropzone .link-row svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* ── Usage chart ────────────────────────────────────────────────────────────────────────────── */
+
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  height: 92px;
+  padding-top: 8px;
+}
+
+.chart .bar {
+  flex: 1;
+  border-radius: 3px 3px 1px 1px;
+  background: var(--surface-strong);
+  min-height: 2px;
+  position: relative;
+  transition: background 0.14s ease;
+}
+
+.chart .bar.hot {
+  background: linear-gradient(180deg, var(--accent-bright), var(--accent));
+}
+
+.chart .bar:hover {
+  background: var(--accent);
+}
+
+.chart-legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+/* ── Downloads list ─────────────────────────────────────────────────────────────────────────── */
+
+.dl-row {
+  display: grid;
+  grid-template-columns: 1fr 190px 120px;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.dl-row:last-child {
+  border-bottom: 0;
+}
+
+.dl-row .name {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dl-row .meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.progress {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  overflow: hidden;
+}
+
+.progress .fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-bright));
+  transition: width 0.2s linear;
+}
+
+.dl-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 21px;
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  font-size: 10.5px;
+  background: var(--surface-strong);
+  color: var(--text-2);
+}
+
+.pill.ok {
+  background: var(--ok-wash);
+  color: var(--ok);
+}
+.pill.err {
+  background: var(--err-wash);
+  color: var(--err);
+}
+.pill.warn {
+  background: var(--warn-wash);
+  color: var(--warn);
+}
+
+/* ── Empty / loading ────────────────────────────────────────────────────────────────────────── */
+
+.empty {
+  padding: 34px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.empty svg {
+  width: 22px;
+  height: 22px;
+  opacity: 0.7;
+}
+
+.empty .big {
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.empty .small {
+  font-size: 11.5px;
+  max-width: 380px;
+}
+
+.skeleton {
+  background: linear-gradient(100deg, var(--surface) 30%, var(--surface-raised) 50%, var(--surface) 70%);
+  background-size: 240% 100%;
+  animation: shimmer 1.3s ease-in-out infinite;
+  border-radius: var(--r-lg);
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 130% 0;
+  }
+  to {
+    background-position: -30% 0;
+  }
+}
+
+.spinner {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid var(--surface-strong);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Toasts ─────────────────────────────────────────────────────────────────────────────────── */
+
+.toasts {
+  position: fixed;
+  right: 18px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 60;
+  max-width: 360px;
+}
+
+.toast {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: var(--r-xl);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+  animation: toast-in 0.18s ease-out;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.toast .bar {
+  width: 3px;
+  align-self: stretch;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.toast.ok .bar {
+  background: var(--ok);
+}
+.toast.err .bar {
+  background: var(--err);
+}
+.toast.warn .bar {
+  background: var(--warn);
+}
+
+.toast .text {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.toast .text .detail {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+/* ── Modal / overlays ───────────────────────────────────────────────────────────────────────── */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  backdrop-filter: blur(6px);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+  animation: fade-in 0.15s ease-out;
+  padding: 24px;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.modal {
+  width: min(460px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 22px;
+}
+
+.modal h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.modal p {
+  margin: 0 0 14px;
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.modal .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.modal .link {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-all;
+  background: var(--surface-subtle);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  padding: 8px 10px;
+  margin-bottom: 12px;
+}
+
+.onboarding {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background: color-mix(in srgb, var(--page) 78%, transparent);
+  backdrop-filter: blur(22px);
+  display: grid;
+  place-items: center;
+  padding: 28px;
+}
+
+.onboarding .sheet {
+  width: min(560px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 28px;
+}
+
+.onboarding .brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.onboarding .brand .brand-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+}
+
+.onboarding h1 {
+  margin: 0 0 6px;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+
+.onboarding .lead {
+  color: var(--text-2);
+  font-size: 13px;
+  margin: 0 0 20px;
+  line-height: 1.6;
+}
+
+.steps {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.steps .step {
+  flex: 1;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--surface-strong);
+}
+
+.steps .step.done {
+  background: var(--accent);
+}
+
+/* The wizard's body, which leaves before the next question arrives. Two questions, so the transition is what
+   says so — a sheet that swapped its contents in one frame read as a glitch. */
+.onboard-body {
+  animation: onboard-in 180ms ease-out both;
+}
+
+.onboard-body.leaving {
+  animation: onboard-out 180ms ease-in both;
+  pointer-events: none;
+}
+
+@keyframes onboard-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes onboard-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* Decoration, never the answer: a machine that asked for less motion changes step at once. */
+@media (prefers-reduced-motion: reduce) {
+  .onboard-body,
+  .onboard-body.leaving {
+    animation: none;
+  }
+}
+
+.bullets {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.bullets li {
+  display: flex;
+  gap: 9px;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+.bullets svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  color: var(--accent-bright);
+  margin-top: 1px;
+}
+
+.onboarding .actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+  align-items: center;
+}
+
+/* The two yes/no offers: a stacked pair rather than a segmented control, because each label is a sentence
+   and the chosen one has to read as the primary action. */
+.onboarding .choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.onboarding .choices .btn {
+  justify-content: flex-start;
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.onboarding .choices .btn.primary {
+  box-shadow: 0 8px 22px -14px color-mix(in srgb, var(--accent) 80%, transparent);
+}
+
+.onboarding .actions .grow {
+  flex: 1;
+}
+
+/* ── Misc ──────────────────────────────────────────────────────────────────────────────────── */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 14px;
+  align-items: start;
+}
+
+.divider {
+  height: 1px;
+  background: var(--hairline);
+  margin: 2px 0;
+}
+
+.kbd {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: var(--r-xs);
+  background: var(--surface-strong);
+  color: var(--text-2);
+  font-family: inherit;
+}
+
+@media (max-width: 1080px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 880px) {
+  .page {
+    padding: 10px 18px 40px;
+  }
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  }
+}
+
+/* ── Builds, Mode and Plugin ─────────────────────────────────────────────────────────────────── */
+
+.page-inner.narrow {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.page-inner.settings-page {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.settings-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.set-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.set-caption {
+  margin-left: 2px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.set-card {
+  overflow: hidden;
+  padding: 0;
+}
+
+.set-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 13px 16px;
+  border-top: 1px solid var(--hairline);
+}
+
+.set-row:first-child {
+  border-top: 0;
+}
+
+.set-row.column {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.set-row .grow {
+  min-width: 0;
+}
+
+.set-title {
+  display: flex;
+  align-items: center;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.set-desc {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.set-control {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+/* An inline link inside a Settings description: the sentence stays prose and only the one word acts. */
+.linkish {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-bright);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.linkish:hover {
+  color: var(--accent);
+}
+
+/* What Hubcap said about a key: green for one it accepted, amber for anything else, including no reply. */
+.note-ok {
+  color: var(--ok);
+}
+
+.note-warn {
+  color: var(--warn);
+}
+
+.set-input {
+  flex: none;
+  width: 270px;
+  padding: 6px 10px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--stroke);
+  background: var(--surface-subtle);
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+}
+
+.set-input.wide {
+  width: 300px;
+  min-width: 0;
+}
+
+/* A control that owns the whole row beneath its label — the folder paths and the Hubcap key are long enough
+ * that sharing the row with the description pushed the trailing buttons out of the card. */
+.set-control.stretch {
+  width: 100%;
+  flex: 1 1 auto;
+}
+
+.set-control.stretch .set-input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.set-input:focus {
+  border-color: var(--accent-line);
+}
+
+.set-select {
+  flex: none;
+  min-width: 96px;
+  padding: 6px 9px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--stroke);
+  background: var(--surface-subtle);
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+}
+
+.set-select:focus {
+  border-color: var(--accent-line);
+}
+
+@media (max-width: 720px) {
+  .set-row {
+    flex-wrap: wrap;
+  }
+
+  .set-input {
+    width: 100%;
+  }
+}
+
+.split-260 {
+  display: grid;
+  grid-template-columns: 270px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.game-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -4px;
+  max-height: 560px;
+  overflow-y: auto;
+}
+
+.game-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--r-lg);
+  background: transparent;
+  text-align: left;
+}
+
+.game-row:hover {
+  background: var(--surface-raised);
+}
+
+.game-row.active {
+  background: var(--accent-wash);
+}
+
+.game-row .thumb {
+  flex: none;
+  width: 46px;
+  height: 22px;
+  border-radius: var(--r-xs);
+  overflow: hidden;
+  background: var(--surface-raised);
+}
+
+.game-row .thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.game-row .grow {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.game-row .title {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.game-row .meta {
+  font-size: 10px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pager {
+  border-top: 1px solid var(--hairline);
+  padding-top: 8px;
+}
+
+.pager-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.build-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.build-title h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.build-counts {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--stroke);
+  background: var(--surface-subtle);
+  color: var(--text);
+  outline: none;
+}
+
+.select:focus {
+  border-color: var(--accent-line);
+}
+
+.build-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.build-actions.end {
+  justify-content: flex-end;
+}
+
+.inline-field {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.inline-field input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--stroke);
+  background: var(--surface-subtle);
+  outline: none;
+}
+
+.group-head {
+  margin: 14px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.build-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.build-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 7px 6px;
+  border-radius: var(--r-lg);
+}
+
+.build-row:hover {
+  background: var(--surface-subtle);
+}
+
+.build-row .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.build-row .title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.build-row .meta {
+  font-size: 10.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.switch {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 18px;
+  margin-top: 2px;
+  padding: 0;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--stroke);
+  background: var(--surface-strong);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.switch span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-2);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.switch.on {
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.switch.on span {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+.switch:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.manifest {
+  margin-top: 2px;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 10.5px;
+  color: var(--accent-bright);
+  opacity: 0.9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.manifest.dim {
+  color: var(--disabled);
+}
+
+.manifest.warn {
+  color: var(--warn);
+}
+
+.lock {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.lock input {
+  accent-color: var(--accent);
+}
+
+.tag-pill {
+  padding: 1px 5px;
+  border-radius: var(--r-sm);
+  background: var(--accent-wash);
+  color: var(--accent-bright);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.tag-pill.gold {
+  background: var(--gold-fill);
+  color: var(--gold);
+}
+
+.code {
+  width: 100%;
+  min-height: 320px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--stroke);
+  background: var(--panel-deep);
+  color: var(--text);
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+}
+
+.code:focus {
+  border-color: var(--accent-line);
+}
+
+/* Mode */
+
+.mode-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mode-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px;
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-2xl);
+}
+
+.mode-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.mode-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.mode-title svg {
+  color: var(--accent-bright);
+}
+
+.mode-desc {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.mode-status {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.mode-action {
+  flex: none;
+}
+
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: 2px;
+}
+
+.pill.info {
+  background: var(--info-wash);
+  color: var(--info);
+}
+
+.cloud-card.locked {
+  opacity: 0.55;
+}
+
+.cloud-grid {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.cloud-grid > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.cloud-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 104px;
+}
+
+.stack-tight {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+}
+
+.progress-line {
+  position: relative;
+  height: 4px;
+  margin: 2px 0;
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  background: var(--surface-strong);
+}
+
+.progress-line::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 35%;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  animation: sweep 1.15s ease-in-out infinite;
+}
+
+@keyframes sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+/* Plugin */
+
+.plugin-hero .hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.hero-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: var(--r-lg);
+  background: var(--accent-wash);
+  color: var(--accent-bright);
+}
+
+.hero-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.components {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.component .label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.component .value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.component .value .on {
+  color: var(--text);
+}
+
+.component .value .warn {
+  color: var(--warn);
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.callout {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: var(--r-lg);
+  font-size: 11.5px;
+}
+
+.callout.info {
+  background: var(--info-wash);
+  color: var(--info);
+}
+
+.callout-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 0;
+  padding: 16px 18px;
+}
+
+.callout-row .title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.callout-row .meta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-2);
+}.callout-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-lg);
+  background: var(--accent-wash);
+  color: var(--accent-bright);
+}
+
+/*
+ * The offline line under the title bar.
+ *
+ * It is deliberately calm: the accent wash of the rest of the chrome and a warm dot, no red and no scrim.
+ * Nothing is broken when this shows — the local pages all work — so it reads as a status, not a failure,
+ * and it is one line tall so the page beneath does not shift meaningfully when it comes and goes.
+ */
+.server-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 8px 18px;
+  background: var(--warn-wash);
+  border-bottom: 1px solid var(--hairline);
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.server-banner-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+.server-banner-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.server-banner-title {
+  flex: none;
+  font-weight: 600;
+  color: var(--warn);
+}
+
+.server-banner-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.server-banner-until {
+  flex: none;
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* ── Update gate ──────────────────────────────────────────────────────────────────────────────── */
+
+/* The whole window below the title bar: nothing else is mounted while this is up, so it fills the app rather
+   than floating over it, and it stays readable when the window is small. */
+.update-gate {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 32px 24px;
+  overflow-y: auto;
+}
+
+.update-card {
+  width: min(520px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 30px 30px 26px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--stroke);
+  background: var(--panel);
+  box-shadow: 0 24px 60px -32px rgba(0, 0, 0, 0.7);
+}
+
+.update-eyebrow {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent-bright);
+}
+
+.update-card h1 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.update-lede {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.update-versions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.update-chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.update-chip.old {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent);
+}
+
+.update-chip.new {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--accent-wash);
+  color: var(--accent-bright);
+  font-weight: 600;
+}
+
+/* Release notes are markdown that arrives from GitHub, so they are shown as plain text and scrolled rather
+   than allowed to grow the card until the buttons fall off the window. */
+.update-notes {
+  max-height: 132px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border-radius: var(--r-lg);
+  background: var(--surface-subtle);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.update-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.update-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.update-progress-note {
+  font-size: 12px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.update-footnote {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.update-error {
+  padding: 9px 12px;
+  border-radius: var(--r-lg);
+  background: var(--warn-wash);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--warn);
+}
+
+
+@media (max-width: 1080px) {
+  .split-260 {
+    grid-template-columns: 1fr;
+  }
+  .game-list {
+    max-height: 300px;
+  }
+}
+
+@media (max-width: 760px) {
+  .mode-card,
+  .cloud-grid {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .components {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Store (Add) ─────────────────────────────────────────────────────────────────────────────── */
+
+.store-summary {
+  margin-top: -12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.store-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.store-search .search {
+  flex: 1;
+}
+
+.store-search .back {
+  padding: 7px 9px;
+}
+
+.ac-panel {
+  margin-top: -10px;
+  padding: 4px;
+  background: var(--panel-deep);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-xl);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.ac-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--r-lg);
+  background: transparent;
+  text-align: left;
+  color: var(--text);
+}
+
+.ac-row:hover {
+  background: var(--surface-raised);
+}
+
+.ac-row svg {
+  color: var(--muted);
+}
+
+.ac-art {
+  flex: none;
+  width: 60px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--surface-raised);
+}
+
+.ac-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ac-art.appid {
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  color: var(--accent-bright);
+  background: var(--accent-wash);
+  font-family: Consolas, monospace;
+}
+
+.ac-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ac-id {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ac-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.strip {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 10px;
+  scrollbar-width: thin;
+}
+
+.strip-card {
+  flex: 0 0 196px;
+}
+
+.strip .tile {
+  width: 100%;
+}
+
+/* ── Store detail ─────────────────────────────────────────────────────────────────────────────── */
+
+/* A real store page: banner, then a reading column with a facts rail beside it.
+
+   The page owns the whole window rather than a 1060px card floating in the middle of it: on a wide window
+   the old cap left a strip of empty page beside the art and squeezed nothing, and on a tall window it left
+   half the card empty under the depot table. Everything here is sized against the window, the card fills
+   the frame, and the one column that can grow (the reading column) is the only thing that scrolls. */
+.store-detail {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2xl);
+  overflow: hidden;
+}
+
+/* The banner flexes with the window height instead of being a fixed 200px slice: short windows keep the
+   text reachable, tall ones give the art the room a store page should have. */
+.detail-hero {
+  position: relative;
+  flex: 0 0 auto;
+  height: clamp(132px, 27vh, 300px);
+  background: var(--panel-deep);
+  border-bottom: 1px solid var(--hairline);
+  overflow: hidden;
+}
+
+.detail-hero img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 42%;
+}
+
+/* Blend the bottom of the art into the card so the banner does not end on a hard line. */
+.detail-hero-shade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.16), transparent 26%),
+    linear-gradient(0deg, rgba(0, 0, 0, 0.42), transparent 46%);
+}
+
+.detail-hero.empty .detail-hero-shade {
+  background: radial-gradient(
+    120% 140% at 12% 0%,
+    color-mix(in srgb, var(--accent) 26%, transparent),
+    transparent 62%
+  );
+}
+
+.detail-hero-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.detail-grid {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 24px;
+  min-height: 0;
+  padding: 18px 22px 20px;
+  align-items: stretch;
+}
+
+/* One scroll container for the reading column — the depot table can be 300 rows long, and a nested
+   scrollbar inside a scrolling column is how a page ends up feeling stuck. */
+.detail-main {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.detail-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.detail-title .grow {
+  min-width: 0;
+}
+
+.detail-title h2 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+
+/* Metadata as pills rather than one dim run-on line: the App ID is the thing people copy out, and a
+   genre list reads as three names instead of one string. */
+.detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.meta-chip {
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--hairline);
+  background: var(--surface-subtle);
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.meta-chip.mono {
+  font-family: Consolas, monospace;
+  color: var(--text);
+}
+
+.meta-chip.quiet {
+  padding-left: 2px;
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+}
+
+.detail-desc {
+  margin: 12px 0 0;
+  max-width: 66ch;
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+.detail-cta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.detail-fetch {
+  flex: none;
+  padding: 8px 16px;
+}
+
+.detail-note {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* The contents strip goes straight under the header: no summary of itself above it, no tiles, no second
+   scrollbar. */
+.detail-block {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+
+.detail-block-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.detail-block-title,
+.side-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* What the fetch is made of, as three or four numbers instead of a table: a size to plan disk around, how much
+   of it is DLC, and how much a lua already covers. Depot ids and manifests belong on the Builds page. */
+.detail-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 26px;
+  padding: 12px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  background: var(--surface-subtle);
+}
+
+.detail-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.fact-value {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.fact-label {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.detail-facts + .detail-note {
+  margin-top: 10px;
+}
+
+/* ── Store detail: facts rail ─────────────────────────────────────────────────────────────────── */
+
+.detail-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.side-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px 13px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+}
+
+.source-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.source-row .name {
+  font-size: 12px;
+}
+
+.source-row .pill {
+  margin-left: auto;
+}
+
+.side-path {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.side-path .kbd {
+  margin-right: 4px;
+  font-family: Consolas, monospace;
+}
+
+/* Below this the rail would be narrower than the pills it holds, so it moves under the text — and at that
+   point the stacked page is taller than the window, so the page frame takes the scrolling back. */
+@media (max-width: 940px) {
+  .page:has(> .page-inner.store-detail-page) {
+    overflow-y: auto;
+  }
+
+  .page-inner.store-detail-page {
+    height: auto;
+  }
+
+  .store-detail {
+    flex: 0 0 auto;
+  }
+
+  .detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+
+  .detail-main,
+  .detail-side {
+    overflow: visible;
+  }
+}
+
+/* Short windows: give the text every pixel the banner can spare. */
+@media (max-height: 620px) {
+  .detail-hero {
+    height: 118px;
+  }
+}
+
+.already {
+  margin-top: 6px;
+}
+
+.already-title {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.store-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ── Home ─────────────────────────────────────────────────────────────────────────────────────── */
+
+.page-inner.home {
+  gap: 14px;
+}
+
+.home-head {
+  display: flex;
+  align-items: center;
+}
+
+.home-head h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+
+.home-head .discord-pill {
+  margin-left: auto;
+}
+
+.home-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.home-stat {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-height: 82px;
+  padding: 14px 16px;
+  border-radius: var(--r-xl);
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  text-align: left;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.home-stat:hover {
+  background: var(--surface-raised);
+  border-color: var(--stroke);
+}
+
+.home-stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.6px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.home-stat-value.accent {
+  color: var(--accent);
+}
+
+.home-stat-value.info {
+  color: var(--info);
+}
+
+.home-stat-caption {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.home-stat-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.home-stat-status {
+  margin-top: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+}
+
+.home-stat-status.ok {
+  color: var(--ok);
+}
+
+.home-stat-status.warn {
+  color: var(--warn);
+}
+
+.home-status {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 8px;
+}
+
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 8px;
+  border-radius: var(--r-md);
+  font-size: 13px;
+  color: var(--text-2);
+  text-align: left;
+  transition: background 0.12s ease;
+}
+
+.status-line:hover {
+  background: var(--surface-raised);
+}
+
+.status-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-dim {
+  color: var(--text);
+}
+
+.shelf h2 {
+  margin: 2px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+}
+
+.shelf-row {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.shelf-item {
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  overflow: hidden;
+  aspect-ratio: 460 / 215;
+}
+
+.shelf-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: filter 0.14s ease;
+}
+
+.shelf-item:hover img {
+  filter: brightness(1.14);
+}
+
+.home-bottom {
+  display: grid;
+  grid-template-columns: minmax(0, 2.15fr) minmax(260px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.usage-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.usage-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.usage-sub {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.usage-card .chart {
+  height: 106px;
+  margin-top: 12px;
+}
+
+.usage-foot {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.picks-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  width: 100%;
+}
+
+.pick img {
+  width: 150px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: var(--r-md);
+  flex: none;
+}
+
+.pick-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pick-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pick-id {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ── Store grid ──────────────────────────────────────────────────────────────────────────────── */
+
+.store-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.store-more {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 2px;
+}
+
+.store-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.store-section-head h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.store-grid {
+  display: grid;
+  /*
+   * The count is measured in the app (`useEvenColumns`) and written inline, so every row holds an even number
+   * of cards at any window size — two when the window is narrow, eight when it is fullscreen. Four is only the
+   * first paint's fallback, before that measurement lands.
+   */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.store-grid .tile {
+  gap: 0;
+  border-radius: var(--r-xs);
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.store-grid .tile:hover {
+  border-color: var(--accent-line);
+  background: var(--surface-raised);
+}
+
+.store-grid .tile .art {
+  border: 0;
+  border-radius: 0;
+}
+
+.store-grid .tile:hover .art {
+  transform: none;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.store-grid .tile .name {
+  padding: 8px 9px 6px;
+  font-size: 12px;
+  line-height: 1.32;
+  color: var(--text);
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* One height for one line of title and for two, so the stats row under every card sits on the same line. */
+  min-height: 39px;
+}
+
+.store-grid .tile .sub {
+  margin-top: 0;
+  padding: 0 9px 9px;
+  font-size: 10.5px;
+}
+
+/*
+ * The two numbers a card carries: how many of its reviews recommend it, and how many people are playing it
+ * now. Each is one value over one quiet caption, the shape the store's own cards use, and the value's colour
+ * is the reading — red for a game most reviewers would not recommend, amber for a divided one, green for a
+ * liked one. The palette decides the exact shade, so the tones follow the theme like the rest of the app.
+ */
+/*
+ * `align-self` is doing real work here: a `button` is a flex container with its items centred, so without it
+ * this row would collapse to the width of its own text and clip the captions on a narrow card. Stretched, the
+ * two figures always split the card between them.
+ */
+.tile-stats {
+  display: flex;
+  align-self: stretch;
+  gap: 7px;
+  padding: 0 9px 9px;
+}
+
+/* The row before its numbers arrive: the same two cells, with a shimmer where the figures will be, and the words
+   over them so an empty box is never read as a game with no data. Because the cells are the same size as the
+   real ones, the tile is already at its final height and nothing moves when the batch comes back. */
+.tile-stats.loading {
+  position: relative;
+}
+
+.tile-stats.loading .tile-stat {
+  opacity: 0.6;
+}
+
+.tile-stat.ghost .value.skeleton {
+  height: 11px;
+  width: 58%;
+  border-radius: 3px;
+}
+
+.tile-stat.ghost .key.skeleton {
+  height: 7px;
+  width: 76%;
+  border-radius: 3px;
+  margin-top: 3px;
+}
+
+.tile-stats.loading .stats-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--text-2);
+  pointer-events: none;
+}
+
+/*
+ * The figures scale with the space they have rather than being cut off. `container-type` makes `1cqw` a
+ * percentage of this tile's own width, so eight columns on a wide window draw the same reading a size
+ * smaller, and a roomier card draws it at full size; `clamp` carries the ceiling and the floor. A runtime
+ * without container queries simply keeps the sizes below, which is the tighter fit and never a wrong number.
+ */
+.tile-stat {
+  flex: 1 1 0;
+  min-width: 0;
+  /* Half the row at most. A game with only a player count used to stretch its one cell across the whole width,
+     so a shelf where two cards lacked a score read as two different card designs side by side. */
+  max-width: calc(50% - 3.5px);
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px 7px;
+  border-radius: var(--r-md);
+  background: var(--surface-subtle);
+  border: 1px solid var(--hairline);
+}
+
+.tile-stat .value {
+  font-size: clamp(10.5px, 15cqw, 13px);
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tile-stat .key {
+  font-size: clamp(8.5px, 10.5cqw, 9.5px);
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tile-stat.score.bad .value,
+.tile-stat.score.bad .key {
+  color: var(--err);
+}
+
+.tile-stat.score.mixed .value,
+.tile-stat.score.mixed .key {
+  color: var(--warn);
+}
+
+.tile-stat.score.good .value,
+.tile-stat.score.good .key {
+  color: var(--ok);
+}
+
+.tile-stat.players .value {
+  color: var(--ok);
+}
+
+/* The library's bigger cards carry the same row, but inside their own body rather than under the art. */
+.lib-body .tile-stats {
+  padding: 7px 0 0;
+  margin-top: 5px;
+  border-top: 1px solid var(--hairline);
+}
+
+/* ── Downloads history ───────────────────────────────────────────────────────────────────────── */
+
+.dl-idle {
+  padding: 22px;
+  text-align: center;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.dl-idle.small {
+  padding: 16px;
+  text-align: left;
+}
+
+.dl-history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dl-history-head {
+  display: flex;
+  align-items: center;
+}
+
+.dl-history-head h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dl-history-head .btn {
+  margin-left: auto;
+}
+
+.dl-history-list {
+  overflow: hidden;
+}
+
+.dl-hist-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.dl-hist-row:last-child {
+  border-bottom: 0;
+}
+
+.dl-hist-row .name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dl-hist-row .meta {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.dl-when {
+  font-size: 11px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.pick-empty {
+  width: 150px;
+  height: 72px;
+  flex: none;
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+/* No art for this appid (or the CDN has none): name the game rather than leaving a hole in the row. */
+.shelf-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 6px 9px;
+  background: linear-gradient(
+    155deg,
+    color-mix(in srgb, var(--accent) 14%, var(--surface)),
+    var(--surface) 70%
+  );
+  text-align: center;
+}
+
+.shelf-empty-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--text-2);
+}
+
+/* ── Library page ────────────────────────────────────────────────────────────────────────────── */
+
+.lib-page .head-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.lib-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lib-filter-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 190px));
+  gap: 12px;
+}
+
+.lib-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+/*
+ * A select is drawn twice: the closed control we style here, and the popup list the OS renders from the
+ * same colours. Both need an opaque fill — a translucent surface over the card leaves near-white on white in
+ * light mode, which is exactly how the filters ended up unreadable.
+ */
+.lib-field select {
+  height: 32px;
+  padding: 0 30px 0 10px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--stroke);
+  background-color: color-mix(in srgb, var(--text) 7%, var(--panel));
+  color: var(--text);
+  outline: none;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+.lib-field select:hover {
+  border-color: color-mix(in srgb, var(--text) 26%, transparent);
+}
+
+.lib-field select:focus-visible {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px var(--accent-wash);
+}
+
+.lib-field select option {
+  background: var(--panel);
+  color: var(--text);
+}
+
+.lib-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.lib-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+.lib-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-xl);
+  background: var(--surface);
+  text-align: left;
+  overflow: hidden;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.lib-card:hover {
+  border-color: var(--stroke);
+  background: var(--surface-raised);
+}
+
+.lib-card .art {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 460 / 215;
+  overflow: hidden;
+  background: var(--surface-subtle);
+}
+
+.lib-card .art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.lib-card .art .fallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 8px;
+  font-size: 11px;
+  color: var(--text-2);
+  text-align: center;
+}
+
+.lib-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 11px 11px;
+}
+
+.lib-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lib-meta {
+  font-size: 10.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  row-gap: 8px;
+  border-top: 1px solid var(--hairline);
+  padding-top: 10px;
+  margin-top: 4px;
+}
+
+.pager .section-note {
+  white-space: nowrap;
+}
+
+.pager .grow {
+  flex: 1;
+}
+
+.page-no {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 7px;
+  border-radius: var(--r-md);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.page-no:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.page-no.active {
+  background: var(--surface-raised);
+  border-color: var(--stroke);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.page-gap {
+  color: var(--text-2);
+  font-size: 12px;
+  padding: 0 2px;
+}
+
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.lib-per {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.lib-per select {
+  padding: 5px 8px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--stroke);
+  background: var(--surface-subtle);
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+}
+
+/* ── Store detail as its own page ─────────────────────────────────────────────────────────────── */
+
+/* The game replaces the grid instead of opening underneath it, so the back row has to sit above the
+   hero and line up with the page's own gutter. */
+/* The detail view takes the whole window: the page frame stops scrolling, the card fills the frame, and
+   only the reading column inside it scrolls. */
+.page:has(> .page-inner.store-detail-page) {
+  overflow: hidden;
+  padding-bottom: 16px;
+}
+
+.page-inner.store-detail-page {
+  height: 100%;
+  min-height: 0;
+  gap: 0;
+}
+
+.detail-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 0 10px;
+}
+
+.detail-bar .btn.back {
+  padding-left: 9px;
+}
+
+.store-detail-page .store-detail {
+  margin-top: 0;
+}
+
+/* ── Library: owned games ─────────────────────────────────────────────────────────────────────── */
+
+.lib-summary {
+  display: flex;
+  align-items: center;
+  min-height: 18px;
+  margin: -2px 0 8px;
+}
+
+.lib-owned-grid {
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+}
+
+.lib-owned-grid .tile .sub {
+  color: var(--muted);
+}
+
+.lib-filters .btn.small {
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+/* ── Library: one game's menu ──────────────────────────────────────────────────────────────── */
+
+/* The Windows build opened a game as a panel that slides in from the right, not a centred dialog: the grid
+   stays visible behind it and the actions are a stack of full-width rows. The library click is that menu
+   again, rebuilt on this app's tokens. */
+.game-menu-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 44;
+}
+
+.game-menu-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+  backdrop-filter: blur(2px);
+  animation: fade-in 0.14s ease-out;
+}
+
+.game-menu {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(396px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-left: 1px solid var(--stroke);
+  box-shadow: -24px 0 64px rgba(0, 0, 0, 0.46);
+  animation: game-menu-in 0.18s cubic-bezier(0.2, 0.75, 0.25, 1);
+}
+
+@keyframes game-menu-in {
+  from {
+    transform: translateX(26px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.game-menu-head {
+  flex: none;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 0 18px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.game-menu-kicker {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.game-menu-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px 10px;
+}
+
+.game-menu-art {
+  position: relative;
+  aspect-ratio: 460 / 215;
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  background: var(--surface-subtle);
+  border: 1px solid var(--hairline);
+}
+
+.game-menu-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.game-menu-art-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.game-menu-badge {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  background: rgba(10, 10, 14, 0.74);
+  color: var(--gold);
+}
+
+.game-menu-title {
+  margin: 14px 0 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.game-menu-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 7px 0 0 -6px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11.5px;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.game-menu-id:hover {
+  background: var(--surface);
+  border-color: var(--hairline);
+  color: var(--text);
+}
+
+.game-menu-id .mono {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.game-menu-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.game-menu-about {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+
+.game-menu-about h3 {
+  margin: 0 0 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.game-menu-about p {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.game-menu-facts {
+  display: grid;
+  grid-template-columns: 68px 1fr;
+  gap: 4px 10px;
+  font-size: 11.5px;
+}
+
+.game-menu-facts .k {
+  color: var(--muted);
+}
+
+.game-menu-facts .v {
+  color: var(--text-strong);
+}
+
+.game-menu-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.game-menu-tag {
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  background: var(--accent-wash);
+  color: var(--accent-bright);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.game-menu-actions {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 18px 16px;
+  border-top: 1px solid var(--hairline);
+  background: var(--surface-subtle);
+}
+
+.game-menu-actions .btn {
+  width: 100%;
+  height: 34px;
+  justify-content: flex-start;
+}
+
+.game-menu-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.game-menu-remove {
+  margin-top: 2px;
+}
+
+.game-menu-confirm {
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--err) 32%, transparent);
+  border-radius: var(--r-xl);
+  background: var(--err-wash);
+}
+
+.game-menu-confirm p {
+  margin: 0 0 9px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.game-menu-confirm strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.game-menu-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.game-menu-confirm-actions .btn {
+  width: auto;
+  height: 26px;
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+.mono {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--hairline);
+}
+
+/* The back row is the page's own close affordance, so the small X would be a second, redundant one. */
+.store-detail-page .detail-title .icon-btn {
+  display: none;
+}

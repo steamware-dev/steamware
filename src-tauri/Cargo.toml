@@ -1,0 +1,58 @@
+[package]
+name = "steamware"
+version = "1.0.3"
+description = "Steamware desktop"
+authors = ["Steamware"]
+edition = "2021"
+rust-version = "1.80"
+
+# `cdylib` is deliberately absent. It exists in the Tauri template for mobile targets; on Windows it makes
+# rustc build a second artifact that re-exports every symbol, and once the tray and image crates are linked
+# in that export table overflows MinGW's ordinal limit ("export ordinal too large"). The desktop app needs
+# the staticlib/rlib and nothing else.
+[lib]
+name = "steamware_lib"
+crate-type = ["staticlib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# `tray-icon` is the notification-area icon "Minimize to System Tray" hides behind; `image-png` lets the
+# bundled window icon be used as-is rather than generating a second one.
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+tokio = { version = "1", features = ["fs", "io-util", "sync", "time", "macros", "net", "rt", "rt-multi-thread"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tokio-tungstenite = "0.24"
+tiny_http = "0.12"
+futures-util = "0.3"
+thiserror = "2"
+sha2 = "0.10"
+base64 = "0.22"
+rand = "0.8"
+url = "2"
+# A theme's `skin.json` decides which of its files belong to which Steam window by regex, so the patterns
+# are matched rather than approximated: they are the theme author's own expressions.
+regex = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+tauri-plugin-single-instance = "2.4.5"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+
+# `FIONREAD` on a Discord IPC socket: the unix equivalent of the `PeekNamedPipe` call the Windows build
+# already makes, so a frame is only read once its header has actually arrived.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+codegen-units = 4
+lto = "thin"
+opt-level = "s"
+panic = "abort"
+strip = true

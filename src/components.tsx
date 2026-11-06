@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type DragEvent, type ReactNode } from "react";
+import type { ImportFile, InstallSummary } from "./lib";
 import { listen } from "@tauri-apps/api/event";
 import {
   AlertTriangle,
@@ -485,22 +486,67 @@ export function SkeletonGrid({ count = 8, capsule }: { count?: number; capsule?:
 /* ── Drop zone ──────────────────────────────────────────────────────────────────────────────── */
 
 export function FileDropZone({
-  onPicked,
-  busy,
+  onDone,
   title = "Drop .lua, .manifest or .zip files here",
-  subtitle = "— or drag a SteamDB / Steam store link to add that game.",
+  subtitle = "— or add them with Browse. Steam is told the game exists, not asked to download it.",
 }: {
-  onPicked: () => void;
-  busy?: boolean;
+  onDone?: (summary: InstallSummary) => void;
   title?: string;
   subtitle?: string;
 }) {
+  const [busy, setBusy] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function install(files: ImportFile[]) {
+    if (files.length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      onDone?.(await api.installFiles(files));
+    } catch (failure) {
+      setError(toFailure(failure).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function browse() {
+    try {
+      const paths = await api.pickFiles();
+      if (paths.length === 0) return;
+      await install(paths.map((path) => ({ name: baseName(path), path })));
+    } catch (failure) {
+      setError(toFailure(failure).message);
+    }
+  }
+
+  async function drop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDragging(false);
+    // A drop hands the page a `File` with no path on disk, so the bytes are read here and passed as base64.
+    const dropped = [...event.dataTransfer.files];
+    if (dropped.length === 0) return;
+    const files = await Promise.all(
+      dropped.map(async (file) => ({ name: file.name, data: await toBase64(file) })),
+    );
+    await install(files);
+  }
+
   return (
-    <div className="dropzone">
-      <div className="drop-title">{busy ? "Reading the archive…" : title}</div>
-      <div className="drop-hint">{subtitle}</div>
+    <div
+      className={`dropzone${dragging ? " over" : ""}`}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={drop}
+    >
+      <div className="drop-title">{busy ? "Adding to Steam…" : title}</div>
+      <div className="drop-hint">{error ?? subtitle}</div>
       <div className="link-row">
-        <button onClick={onPicked} disabled={busy} type="button">
+        <button onClick={browse} disabled={busy} type="button">
           <FolderOpen />
           Browse files…
         </button>
@@ -508,6 +554,21 @@ export function FileDropZone({
       </div>
     </div>
   );
+}
+
+/** The last segment of a path, whichever separator the platform used. */
+function baseName(path: string): string {
+  return path.split(/[\\/]/).pop() || path;
+}
+
+/** A dropped file's bytes as base64. Chunked, because one spread call over a large manifest overflows the stack. */
+async function toBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  }
+  return btoa(binary);
 }
 
 /* ── Downloads ─────────────────────────────────────────────────────────────────────────────── */

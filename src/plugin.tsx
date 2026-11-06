@@ -153,6 +153,22 @@ export function PluginPage({
           </div>
         )}
 
+        {state?.restartRequired && (
+          <div className="callout info plugin-restart">
+            <span className="grow">
+              Steam is running without its plugin port. It only opens one while starting, so store pages stay
+              untouched until Steam restarts once.
+            </span>
+            <button
+              className="btn small"
+              disabled={Boolean(busy)}
+              onClick={() => app.run(() => api.steamRestart())}
+            >
+              Restart Steam
+            </button>
+          </div>
+        )}
+
         <div className="hero-actions">
           {/* The main action keeps the brand gradient whether it reads Install, Update or Reinstall: the
               button does the same thing in all three states, so it should not change weight when it does. */}

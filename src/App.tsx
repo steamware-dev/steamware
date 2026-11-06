@@ -273,7 +273,7 @@ export default function App() {
   );
 
   const pageApi: PageApi = useMemo(
-    () => ({ notify, run, beginAuth, authenticated, session, version: boot?.version ?? "1.0.3" }),
+    () => ({ notify, run, beginAuth, authenticated, session, version: boot?.version ?? "1.0.4" }),
     [notify, run, beginAuth, authenticated, session, boot?.version],
   );
 

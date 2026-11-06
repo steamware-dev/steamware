@@ -126,6 +126,18 @@ export interface InstallSummary {
   library: boolean;
 }
 
+/**
+ * One file handed to the installer.
+ *
+ * A picker gives a `path`; a drop gives the bytes as base64, because a webview is handed a `File` with no path
+ * on disk and the installer has to read what was actually dragged in.
+ */
+export interface ImportFile {
+  name: string;
+  path?: string;
+  data?: string;
+}
+
 export interface HistoryEntry {
   id: string;
   appId: string;
@@ -281,6 +293,8 @@ export interface PluginState {
   latest: string | null;
   updateAvailable: boolean;
   millennium: boolean;
+  /** Steam is running without its plugin port, so store pages need one restart before the plugin appears. */
+  restartRequired: boolean;
   steamPath: string | null;
   status: string | null;
 }
@@ -413,7 +427,11 @@ export const api = {
   openExternal: (url: string) => invoke<void>("open_external", { url }),
   revealPath: (path: string) => invoke<void>("reveal_path", { path }),
   installLua: (path: string) => invoke<InstallSummary>("install_lua_from_zip", { path }),
+  /** Installs whatever was dropped or picked: a `.zip`, a `.lua`, a `.manifest`, or a `.ua` holding one. */
+  installFiles: (files: ImportFile[]) => invoke<InstallSummary>("install_files", { files }),
   pickArchive: () => invoke<string | null>("pick_archive"),
+  /** The drop zone's own picker: `.lua`, `.manifest`, `.ua` and `.zip`, several at once. */
+  pickFiles: () => invoke<string[]>("pick_files"),
   pickFolder: () => invoke<string | null>("pick_folder"),
 
   steamApp: (appId: string) => invoke<DepotInfo>("steam_app", { appId }),

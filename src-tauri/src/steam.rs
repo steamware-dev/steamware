@@ -583,6 +583,34 @@ fn vdf_clean(value: &str) -> String {
     value.chars().filter(|ch| !ch.is_control() && *ch != '"').collect()
 }
 
+/// The state Steamware's library record carries: in the library, not installed, nothing queued.
+///
+/// `2` is `StateUpdateRequired`, and Steam acts on it — the app goes into the download queue and starts
+/// fetching on the next start, which is the "it installs itself when I reopen Steam" report. `1` is
+/// `StateUninstalled`: the tile and its Install button are there, and nothing moves until the user presses it.
+const STUB_STATE_FLAGS: &str = "1";
+
+/// A folder name Steam will accept as `installdir`.
+///
+/// It is the game's own name, and a name like `Half-Life: Alyx` carries a character Windows refuses in a path.
+/// Steam creates this folder when the user does install, so a raw name makes that fail rather than merely
+/// looking wrong.
+fn install_dir_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|ch| match ch {
+            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            ch => ch,
+        })
+        .collect();
+    let trimmed = cleaned.trim().trim_end_matches(['.', ' ']);
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+        "Steamware app".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// Put a game into Steam's library, the way an installed game is there.
 ///
 /// A lua alone only fakes the licence: Steam knows the app is owned but never adds it to the library
@@ -618,17 +646,14 @@ pub fn register_in_library(override_path: &str, app_id: &str, name: &str) -> boo
     }
     let clean_name = vdf_clean(name.trim());
     let name = if clean_name.is_empty() { format!("App {app_id}") } else { clean_name };
+    let install_dir = install_dir_name(&name);
     let text = format!(
-        "\"AppState\"\n{{\n\t\"appid\"\t\t\"{app_id}\"\n\t\"Universe\"\t\t\"1\"\n\t\"name\"\t\t\"{name}\"\n\t\"StateFlags\"\t\t\"2\"\n\t\"installdir\"\t\t\"{name}\"\n\t\"LastUpdated\"\t\t\"0\"\n\t\"SizeOnDisk\"\t\t\"0\"\n\t\"StagingSize\"\t\t\"0\"\n\t\"buildid\"\t\t\"0\"\n\t\"LastPlayed\"\t\t\"0\"\n\t\"update_result\"\t\t\"0\"\n\t\"BytesToDownload\"\t\t\"0\"\n\t\"BytesDownloaded\"\t\t\"0\"\n}}\n"
+        "\"AppState\"\n{{\n\t\"appid\"\t\t\"{app_id}\"\n\t\"Universe\"\t\t\"1\"\n\t\"name\"\t\t\"{name}\"\n\t\"StateFlags\"\t\t\"{STUB_STATE_FLAGS}\"\n\t\"installdir\"\t\t\"{install_dir}\"\n\t\"LastUpdated\"\t\t\"0\"\n\t\"SizeOnDisk\"\t\t\"0\"\n\t\"StagingSize\"\t\t\"0\"\n\t\"buildid\"\t\t\"0\"\n\t\"LastPlayed\"\t\t\"0\"\n\t\"update_result\"\t\t\"0\"\n\t\"BytesToDownload\"\t\t\"0\"\n\t\"BytesDownloaded\"\t\t\"0\"\n}}\n"
     );
     if std::fs::write(apps.join(&file), text).is_err() {
         return false;
     }
 
-    // Only worth doing while Steam is open; a closed Steam will read the manifest above on its own.
-    if is_running() {
-        open_install_prompt(&root, app_id);
-    }
     true
 }
 
@@ -667,9 +692,10 @@ pub fn unregister_from_library(override_path: &str, app_id: &str) -> LibraryRemo
             continue;
         };
         let tokens = quoted_tokens(&text);
-        let queued = field(&tokens, "StateFlags") == Some("2");
+        // `1` is what this build writes, `2` is what earlier builds wrote: both are Steamware's own stub.
+        let stub = matches!(field(&tokens, "StateFlags"), Some("1") | Some("2"));
         let empty = matches!(field(&tokens, "SizeOnDisk"), None | Some("0"));
-        if queued && empty {
+        if stub && empty {
             if std::fs::remove_file(&path).is_ok() {
                 outcome.removed = true;
             }
@@ -680,47 +706,51 @@ pub fn unregister_from_library(override_path: &str, app_id: &str) -> LibraryRemo
     outcome
 }
 
-/// Ask a running Steam to take the app: `steam://install/<appid>` registers it in the library and asks
-/// where to put it. Best-effort — the manifest is already written, so a failure costs a restart, not the add.
-#[cfg(windows)]
-fn open_install_prompt(root: &Path, app_id: &str) {
-    use std::os::windows::process::CommandExt;
-    const DETACHED_PROCESS: u32 = 0x0000_0008;
-    let executable = root.join("steam.exe");
-    if !executable.exists() {
-        return;
+/// Repair the library records earlier builds wrote as "update required".
+///
+/// Those records are still on disk for anyone upgrading, and Steam reads them the same way it read them when
+/// they were written: it queues the app and downloads it on the next start. Only a record with nothing behind
+/// it is touched — bytes on disk or a pending download mean Steam owns that state, not Steamware.
+///
+/// Returns how many records were repaired.
+pub fn heal_stub_flags(steam_path: &str) -> usize {
+    let Some(root) = detect_install(steam_path) else {
+        return 0;
+    };
+    let Ok(pattern) = regex::Regex::new(r#""StateFlags"(\s*)"2""#) else {
+        return 0;
+    };
+    let mut healed = 0;
+    for library in library_paths(&root) {
+        let apps = library.join("steamapps");
+        let Ok(entries) = std::fs::read_dir(&apps) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !(name.starts_with("appmanifest_") && name.ends_with(".acf")) {
+                continue;
+            }
+            let path = entry.path();
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let tokens = quoted_tokens(&text);
+            if field(&tokens, "StateFlags") != Some("2") {
+                continue;
+            }
+            let untouched = |key: &str| matches!(field(&tokens, key), None | Some("0"));
+            if !(untouched("SizeOnDisk") && untouched("BytesToDownload") && untouched("BytesDownloaded")) {
+                continue;
+            }
+            let fixed = pattern.replacen(&text, 1, "\"StateFlags\"${1}\"1\"");
+            if fixed.as_ref() != text && std::fs::write(&path, fixed.as_bytes()).is_ok() {
+                healed += 1;
+            }
+        }
     }
-    let _ = std::process::Command::new(executable)
-        .arg(format!("steam://install/{app_id}"))
-        .current_dir(root)
-        .creation_flags(DETACHED_PROCESS)
-        .spawn();
+    healed
 }
-
-#[cfg(target_os = "linux")]
-fn open_install_prompt(root: &Path, app_id: &str) {
-    let script = root.join("steam.sh");
-    let program = if script.is_file() { script } else { PathBuf::from("steam") };
-    let _ = std::process::Command::new(program)
-        .arg(format!("steam://install/{app_id}"))
-        .current_dir(root)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
-}
-
-#[cfg(target_os = "macos")]
-fn open_install_prompt(_root: &Path, app_id: &str) {
-    // `open` routes the URI through LaunchServices, which is where the steam:// handler is registered.
-    let _ = std::process::Command::new("open")
-        .arg(format!("steam://install/{app_id}"))
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
-}
-
-#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
-fn open_install_prompt(_root: &Path, _app_id: &str) {}
 
 /// Where Steam keeps the manifest files the lua files pin to.
 ///
@@ -827,7 +857,16 @@ mod tests {
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("\"appid\"\t\t\"2668510\""), "{text}");
         assert!(text.contains("\"name\"\t\t\"Red Dead Redemption\""), "{text}");
-        assert!(text.contains("\"StateFlags\"\t\t\"2\""), "update required, not a pretend install: {text}");
+        assert!(
+            text.contains(&format!("\"StateFlags\"\t\t\"{STUB_STATE_FLAGS}\"")),
+            "in the library but nothing queued, so Steam never starts the download by itself: {text}"
+        );
+        assert!(text.contains("\"installdir\"\t\t\"Red Dead Redemption\""), "{text}");
+
+        // A name Windows cannot hold as a folder is the only thing `installdir` is used for at install time.
+        assert!(register_in_library(&root.to_string_lossy(), "999002", "A: B? C*"));
+        let odd_dir = std::fs::read_to_string(root.join("steamapps").join("appmanifest_999002.acf")).unwrap();
+        assert!(odd_dir.contains("\"installdir\"\t\t\"A_ B_ C_\""), "{odd_dir}");
 
         // Steam's own manifest must win: a second add is a no-op, not a rewrite.
         std::fs::write(&path, "\"AppState\"\n{\n \"appid\" \"2668510\"\n \"StateFlags\" \"4\"\n}\n").unwrap();
@@ -875,6 +914,36 @@ mod tests {
         assert!(real.is_file());
 
         assert!(!unregister_from_library(&root.to_string_lossy(), "../evil").removed);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_stub_written_as_update_required_is_repaired_once() {
+        let root = std::env::temp_dir().join(format!("steamware-heal-{}", rand::random::<u32>()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("steamapps")).unwrap();
+
+        // What 1.0.3 left behind: `2` with nothing behind it, which Steam downloads on its next start.
+        let stub = root.join("steamapps").join("appmanifest_2668510.acf");
+        std::fs::write(
+            &stub,
+            "\"AppState\"\n{\n\t\"appid\"\t\t\"2668510\"\n\t\"StateFlags\"\t\t\"2\"\n\t\"SizeOnDisk\"\t\t\"0\"\n}\n",
+        )
+        .unwrap();
+        // A game Steam is actually downloading keeps its flags: those bytes are Steam's, not ours.
+        let real = root.join("steamapps").join("appmanifest_440.acf");
+        std::fs::write(
+            &real,
+            "\"AppState\"\n{\n\t\"appid\"\t\t\"440\"\n\t\"StateFlags\"\t\t\"2\"\n\t\"SizeOnDisk\"\t\t\"4096\"\n}\n",
+        )
+        .unwrap();
+
+        assert_eq!(heal_stub_flags(&root.to_string_lossy()), 1);
+        let healed = std::fs::read_to_string(&stub).unwrap();
+        assert!(healed.contains("\"StateFlags\"\t\t\"1\""), "{healed}");
+        assert!(std::fs::read_to_string(&real).unwrap().contains("\"StateFlags\"\t\t\"2\""));
+        assert_eq!(heal_stub_flags(&root.to_string_lossy()), 0, "already repaired");
+
         std::fs::remove_dir_all(&root).ok();
     }
 

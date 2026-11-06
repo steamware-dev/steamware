@@ -1,8 +1,7 @@
 # Steamware — Rust + Tauri
 
 The desktop client, rebuilt. Same design language as the WPF app, none of its network code: every request
-goes to the Worker in [`../backend`](../backend), which holds the provider keys. See
-[`../SECURITY.md`](../SECURITY.md) for the model.
+goes to the Worker, which holds the provider keys. The desktop binary contains no provider key.
 
 ## Status
 
@@ -35,7 +34,7 @@ The store-page plugin is fully served by this build, with no WPF app needed alon
   presence, remove, fixes, settings, restart, links). It is loopback-only and every request must carry the
   per-run bridge token the injector holds; a local web page cannot call it.
 
-The WPF build remains in `../LuaTools-main` and still works; nothing was deleted.
+The older WPF build still works and was not deleted.
 
 ## What the desktop asks the Worker for
 

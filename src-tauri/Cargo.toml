@@ -1,6 +1,6 @@
 [package]
 name = "steamware"
-version = "1.0.3"
+version = "1.0.4"
 description = "Steamware desktop"
 authors = ["Steamware"]
 edition = "2021"

@@ -257,7 +257,17 @@ export function HomePage({
         </div>
       </div>
 
-      <FileDropZone onPicked={() => onNavigate("downloads")} />
+      <FileDropZone
+        onDone={(summary) =>
+          app.notify(
+            "ok",
+            "Added to Steam",
+            `${summary.lua} lua · ${summary.manifests} manifest${summary.manifests === 1 ? "" : "s"}${
+              summary.library ? " · in your library" : ""
+            } — Steam waits for you to press Install, it does not download on its own.`,
+          )
+        }
+      />
 
       {shelf.length > 0 && (
         <section className="shelf">
@@ -896,9 +906,6 @@ export function SettingsPage({
   // What Hubcap said about the key on this page. Held apart from the draft: it is the result of a check,
   // not a setting, and it has to be cleared when the key is edited.
   const [keyNote, setKeyNote] = useState<HubcapCheck | null>(null);
-  const [checkingDiscord, setCheckingDiscord] = useState(false);
-  // What Discord said about the application id on this page; cleared as soon as the id is edited.
-  const [discordNote, setDiscordNote] = useState<HubcapCheck | null>(null);
   // DepotBox is the built-in source; whether the server can serve it is server state, so it is read here
   // rather than configured. Hubcap is the opposite: the key is the user's own and lives on this PC.
   const sources = useAsync<ServerConfig>(() => api.serverConfig(), []);
@@ -908,33 +915,76 @@ export function SettingsPage({
   const comparable = (settings: Settings) => JSON.stringify(settings);
   const dirty = comparable(draft) !== comparable(boot.settings);
 
-  // Appearance previews live: pick a colour and the whole window follows, before saving. Leaving the page
-  // without saving puts the saved pair back.
+  // Appearance previews live: pick a colour and the whole window follows. Every change is written as it is
+  // made, so leaving the page keeps it rather than putting the old pair back.
   useEffect(() => {
     applyTheme(draft.accent, draft.mode);
   }, [draft.accent, draft.mode]);
 
+  // "Start with Windows" is a registry value, not a profile field. Read back what Windows will actually do:
+  // Task Manager can disable the entry without telling the app, and a switch that shows the stored wish
+  // instead of the live state is the thing that makes a working option look broken.
   useEffect(() => {
-    return () => applyTheme(boot.settings.accent, boot.settings.mode);
-  }, [boot.settings.accent, boot.settings.mode]);
+    let live = true;
+    void api
+      .startupStatus()
+      .then((registered) => {
+        if (!live) return;
+        setDraft((previous) =>
+          previous.startWithWindows === registered ? previous : { ...previous, startWithWindows: registered },
+        );
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  // Every change is written on a short debounce rather than behind a Save button. The delay keeps a typed
+  // path or key from writing the profile on every letter, and a change made just before leaving the page is
+  // flushed on unmount instead of being lost with the component.
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  const touched = useRef(false);
+  const onSavedRef = useRef(onSaved);
+  onSavedRef.current = onSaved;
+  const [saveError, setSaveError] = useState(false);
+
+  useEffect(() => {
+    if (!touched.current || !dirty) return;
+    const timer = window.setTimeout(() => {
+      setSaving(true);
+      setSaveError(false);
+      void api
+        .saveSettings({ ...draftRef.current })
+        .then(async (saved) => {
+          onSavedRef.current(saved);
+          setSteam(await api.steamRefresh());
+        })
+        .catch((error) => {
+          setSaveError(true);
+          app.notify("err", toFailure(error).message);
+        })
+        .finally(() => setSaving(false));
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [draft, dirty]);
+
+  useEffect(() => {
+    return () => {
+      if (!touched.current || !dirtyRef.current) return;
+      void api
+        .saveSettings({ ...draftRef.current })
+        .then((saved) => onSavedRef.current(saved))
+        .catch(() => {});
+    };
+  }, []);
 
   function patch(change: Partial<Settings>) {
+    touched.current = true;
     setDraft((previous) => ({ ...previous, ...change }));
-  }
-
-  async function save() {
-    setSaving(true);
-    try {
-      const saved = await api.saveSettings({ ...draft });
-      onSaved(saved);
-      app.notify("ok", "Settings saved", "Verification will run again against the new server.");
-      setSteam(await api.steamRefresh());
-    } catch (error) {
-      const failure = toFailure(error);
-      app.notify("err", failure.message);
-    } finally {
-      setSaving(false);
-    }
   }
 
   /**
@@ -942,25 +992,9 @@ export function SettingsPage({
    * relies on it, later, with a download error that says nothing about the key.
    *
    * The check goes to Hubcap directly, with the user's own key — the same call a Hubcap download makes. It
-   * never touches the Steamware server, and the key is only written once Hubcap has accepted it.
+   * never touches the Steamware server. The key is saved like every other field; the check is what says
+   * whether Hubcap accepts it.
    */
-  /**
-   * Ask the local Discord client whether it will accept this application id. Nothing is published: a
-   * READY is the client saying the application exists, which is what the user needs to know before saving.
-   */
-  async function checkDiscord() {
-    const appId = draft.discordAppId.trim();
-    setCheckingDiscord(true);
-    setDiscordNote(null);
-    try {
-      setDiscordNote(await api.discordCheck(appId));
-    } catch (error) {
-      setDiscordNote({ ok: false, message: toFailure(error).message });
-    } finally {
-      setCheckingDiscord(false);
-    }
-  }
-
   async function validateKey() {
     const key = draft.hubcapKey.trim();
     setCheckingKey(true);
@@ -983,23 +1017,22 @@ export function SettingsPage({
     <div className="page-inner settings-page">
       <PageHead
         title="Settings"
-        subtitle="How Steamware and Steam look, where downloads go, and how a fetch finds its source."
+        subtitle="How Steamware behaves, where it looks for Steam, and where a fetch gets its files."
         actions={
-          <button className="btn primary" onClick={save} disabled={!dirty || saving}>
-            {saving ? <Loader2 size={13} className="spin" /> : <Check size={13} />}
-            {dirty ? "Save changes" : "Saved"}
-          </button>
+          <span className={`settings-status ${saveError ? "failed" : ""}`} aria-live="polite">
+            {saveError ? "Not saved" : saving || (touched.current && dirty) ? "Saving…" : "Saved"}
+          </span>
         }
       />
 
-      <div className="settings-groups">
+      <div className="settings-sheet">
         {/* ── Install ────────────────────────────────────────────────────────────────────── */}
-        <section className="set-group">
-          <div className="set-caption">Install</div>
-          <div className="card set-card">
+        <section className="settings-section">
+          <header className="settings-section-head"><h2>Install</h2><p>Source choice and update pinning.</p></header>
+          <div className="settings-section-body">
             <SetRow
-              title="Auto Update Apps (Don't Lock Manifests)"
-              desc="Installs without pinning a version, so Steam keeps games updated. Turn off to lock games to the downloaded version."
+              title="Keep games updated"
+              desc="Installs without pinning a version, so Steam can update a game later. Turn it off to lock a game to the version you downloaded."
             >
               <Toggle
                 checked={draft.autoUpdateApps}
@@ -1008,7 +1041,7 @@ export function SettingsPage({
               />
             </SetRow>
             <SetRow
-              title="FastFetch™"
+              title="FastFetch"
               desc="Check the source before downloading, so a game the first one cannot serve comes from the other."
             >
               <Toggle
@@ -1040,9 +1073,9 @@ export function SettingsPage({
         </section>
 
         {/* ── Steam ──────────────────────────────────────────────────────────────────────── */}
-        <section className="set-group">
-          <div className="set-caption">Steam</div>
-          <div className="card set-card">
+        <section className="settings-section">
+          <header className="settings-section-head"><h2>Steam</h2><p>Where Steam lives and what it holds.</p></header>
+          <div className="settings-section-body">
             <SetRow
               title={
                 <>
@@ -1052,7 +1085,7 @@ export function SettingsPage({
               }
               desc={
                 steam.installed
-                  ? `${steam.libraryCount} librar${steam.libraryCount === 1 ? "y" : "ies"} · ${steam.ownedCount} game${steam.ownedCount === 1 ? "" : "s"} in your library · ${steam.gameCount} downloaded`
+                  ? `${steam.libraryCount} ${steam.libraryCount === 1 ? "library" : "libraries"}, ${steam.ownedCount} ${steam.ownedCount === 1 ? "game" : "games"} owned, ${steam.gameCount} added`
                   : "Install Steam, or point at its folder below."
               }
             >
@@ -1111,9 +1144,9 @@ export function SettingsPage({
         </section>
 
         {/* ── Startup ────────────────────────────────────────────────────────────────────── */}
-        <section className="set-group">
-          <div className="set-caption">Startup</div>
-          <div className="card set-card">
+        <section className="settings-section">
+          <header className="settings-section-head"><h2>Startup</h2><p>Windows start, and closing the window.</p></header>
+          <div className="settings-section-body">
             <SetRow title="Start with Windows" desc="Launch Steamware automatically when Windows starts.">
               <Toggle
                 checked={draft.startWithWindows}
@@ -1122,7 +1155,7 @@ export function SettingsPage({
               />
             </SetRow>
             <SetRow
-              title="Minimize to System Tray"
+              title="Minimize to system tray"
               desc="When you close the window, keep Steamware running in the system tray instead of quitting. Double-click the tray icon to restore it."
             >
               <Toggle
@@ -1132,7 +1165,7 @@ export function SettingsPage({
               />
             </SetRow>
             <SetRow
-              title="Discord Rich Presence"
+              title="Discord rich presence"
               desc="Show the page you're on — or the game you're downloading — on your Discord profile. The card carries a Download button for the community."
             >
               <Toggle
@@ -1141,36 +1174,13 @@ export function SettingsPage({
                 label="Discord Rich Presence"
               />
             </SetRow>
-            {draft.discordRpc && (
-              <SetBlock
-                title="Discord application"
-                desc="Steamware ships with its own application, so Rich Presence works as it is. There is nothing to configure here."
-              >
-                <button
-                  className="btn small ghost"
-                  disabled={checkingDiscord || !draft.discordAppId.trim()}
-                  onClick={checkDiscord}
-                  title="Ask the running Discord client whether the built-in application is reachable"
-                >
-                  {checkingDiscord ? <Loader2 size={12} className="spin" /> : <Check size={12} />}
-                  Test
-                </button>
-              </SetBlock>
-            )}
-            {discordNote && (
-              <div className="set-row column">
-                <div className={`set-desc ${discordNote.ok ? "note-ok" : "note-warn"}`}>
-                  {discordNote.message}
-                </div>
-              </div>
-            )}
           </div>
         </section>
 
-        {/* ── Hubcap ─────────────────────────────────────────────────────────────────────── */}
-        <section className="set-group">
-          <div className="set-caption">Hubcap</div>
-          <div className="card set-card">
+        {/* ── API ────────────────────────────────────────────────────────────────────────── */}
+        <section className="settings-section">
+          <header className="settings-section-head"><h2>API</h2><p>The optional second source.</p></header>
+          <div className="settings-section-body">
             <SetRow
               title="DepotBox"
               desc="Built in. Steamware uses it for luas and manifests out of the box."
@@ -1222,7 +1232,7 @@ export function SettingsPage({
                 disabled={checkingKey || !draft.hubcapKey.trim()}
               >
                 {checkingKey ? <Loader2 size={12} className="spin" /> : <Check size={12} />}
-                Validate &amp; Save
+                Validate key
               </button>
             </SetBlock>
             {keyNote && (
@@ -1234,9 +1244,9 @@ export function SettingsPage({
         </section>
 
         {/* ── Steamware Appearance ───────────────────────────────────────────────────────── */}
-        <section className="set-group">
-          <div className="set-caption">Steamware Appearance</div>
-          <div className="card set-card">
+        <section className="settings-section">
+          <header className="settings-section-head"><h2>Appearance</h2><p>Theme and accent, for this window.</p></header>
+          <div className="settings-section-body">
             <SetRow
               title="Theme"
               desc="Light or dark, applied the moment you pick it — this window only."
@@ -1278,9 +1288,9 @@ export function SettingsPage({
 
 
         {/* ── Account ────────────────────────────────────────────────────────────────────── */}
-        <section className="set-group">
-          <div className="set-caption">Account</div>
-          <div className="card set-card">
+        <section className="settings-section">
+          <header className="settings-section-head"><h2>Account</h2><p>The check that unlocks downloads.</p></header>
+          <div className="settings-section-body">
             <SetRow
               title={app.authenticated ? "Verified" : "Not verified"}
               desc={
@@ -1304,9 +1314,9 @@ export function SettingsPage({
         </section>
 
         {/* ── Maintenance ────────────────────────────────────────────────────────────────── */}
-        <section className="set-group">
-          <div className="set-caption">Maintenance</div>
-          <div className="card set-card">
+        <section className="settings-section">
+          <header className="settings-section-head"><h2>Maintenance</h2><p>History and this profile's files.</p></header>
+          <div className="settings-section-body">
             <SetRow
               title="Download history"
               desc="The list on the Downloads page. Clearing it never touches the files."
@@ -1336,9 +1346,9 @@ export function SettingsPage({
         </section>
 
         {/* ── About ──────────────────────────────────────────────────────────────────────── */}
-        <section className="set-group">
-          <div className="set-caption">About</div>
-          <div className="card set-card">
+        <section className="settings-section">
+          <header className="settings-section-head"><h2>About</h2><p>Version and the community.</p></header>
+          <div className="settings-section-body">
             <SetRow
               title={`Steamware ${versionTag(app.version)}`}
               desc="Made by the SteamTools community. Help, updates and announcements live in the Discord."

@@ -48,6 +48,9 @@ pub struct PluginState {
     pub latest: Option<String>,
     pub update_available: bool,
     pub millennium: bool,
+    /// Steam is running but has no debugging port: it started before the marker existed, so its store pages
+    /// cannot be injected until it restarts. `status` says so, and the page offers the restart.
+    pub restart_required: bool,
     pub steam_path: Option<String>,
     pub status: Option<String>,
 }
@@ -178,7 +181,7 @@ fn marker_is_ours(steam_root: &Path) -> bool {
 /// port it opens, so a Steam install without it looks exactly like a plugin that does nothing at all.
 ///
 /// A marker we did not create is left exactly as it is, and `release_cdp_marker` will not remove it.
-pub(crate) fn ensure_cdp_marker(steam_root: &Path) {
+pub(crate) fn ensure_cdp_marker(steam_root: &Path) -> bool {
     use std::os::windows::fs::MetadataExt;
     use std::os::windows::process::CommandExt;
 
@@ -186,7 +189,7 @@ pub(crate) fn ensure_cdp_marker(steam_root: &Path) {
     const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
     if let Ok(meta) = std::fs::symlink_metadata(&marker) {
         if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-            return;
+            return true;
         }
         let _ = if meta.is_dir() {
             std::fs::remove_dir_all(&marker)
@@ -195,8 +198,12 @@ pub(crate) fn ensure_cdp_marker(steam_root: &Path) {
         };
     }
 
+    // `mklink /j` accepts a target that does not exist yet, but creating it costs nothing and makes the
+    // junction readable in Explorer, which is what somebody checking the install will do.
+    let _ = std::fs::create_dir_all(CDP_MARKER_TARGET);
+
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let _ = std::process::Command::new("cmd")
+    let linked = std::process::Command::new("cmd")
         .args([
             "/c",
             "mklink",
@@ -205,7 +212,19 @@ pub(crate) fn ensure_cdp_marker(steam_root: &Path) {
             CDP_MARKER_TARGET,
         ])
         .creation_flags(CREATE_NO_WINDOW)
-        .output();
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+    if linked && marker.exists() {
+        return true;
+    }
+
+    // The junction survives Steam's own cleanup of this name, which is why it is preferred. But a marker
+    // that does not exist at all is a plugin that never appears, and `mklink` does fail on real machines —
+    // an antivirus policy, a Steam folder on a filesystem without reparse points, a locked-down `cmd`. The
+    // plain file is what other loaders ship and it is enough for the next Steam start, so it is the fallback
+    // rather than a silent no-op.
+    std::fs::write(&marker, b"").is_ok()
 }
 
 /// Where the unix symlink points. It only has to be a directory of our own: Steam looks at the marker's
@@ -218,24 +237,25 @@ fn unix_marker_target() -> PathBuf {
 /// The unix marker is a symlink rather than a junction. A plain file is still avoided: Steam's own cleanup
 /// deletes plain files of this name, which is exactly why the Windows build uses a directory link.
 #[cfg(not(windows))]
-pub(crate) fn ensure_cdp_marker(steam_root: &Path) {
+pub(crate) fn ensure_cdp_marker(steam_root: &Path) -> bool {
     use std::os::unix::fs::symlink;
 
     let marker = steam_root.join(CDP_MARKER);
     // A marker somebody else made (Millennium keeps its own) is left alone.
     if std::fs::symlink_metadata(&marker).is_ok() {
-        return;
+        return true;
     }
     let target = unix_marker_target();
     let _ = std::fs::create_dir_all(&target);
-    let _ = symlink(&target, &marker);
+    symlink(&target, &marker).is_ok()
 }
 
 /// Removes the marker, but only when it is the junction this app made.
 ///
-/// This is what keeps the port from outliving the app. The injected bundle talks to the bridge on
-/// `127.0.0.1:6767`, which only exists while Steamware is running, so a marker left behind after quit buys
-/// nothing and hands every later Steam launch an unauthenticated CDP port on loopback.
+/// Called by uninstall, never on quit. The marker has to be present *before* Steam boots, because that is the
+/// only moment Steam decides whether to open its debugging port: removing it when this app closed meant the
+/// next Steam launch — the autostart one, in practice — came up with no port, and the plugin stayed invisible
+/// until the user restarted Steam by hand.
 #[cfg(windows)]
 fn release_cdp_marker(steam_root: &Path) {
     if !marker_is_ours(steam_root) {
@@ -267,17 +287,12 @@ pub(crate) fn ensure_marker_if_installed(steam_path: &str) {
         return;
     };
     if manifest_path().is_file() {
-        ensure_cdp_marker(&root);
+        if !ensure_cdp_marker(&root) {
+            crate::local_api::log_line("could not create the CEF marker in Steam's root; the plugin cannot load");
+        }
     } else {
         // A crash or a forced kill skips the exit hook, so a marker from a previous run can still be here
         // after the plugin was uninstalled. Nothing needs the port without the plugin: drop it if it is ours.
-        release_cdp_marker(&root);
-    }
-}
-
-/// Called on exit and on uninstall: drops the marker only if this app made it.
-pub(crate) fn release_marker_for(steam_path: &str) {
-    if let Some(root) = steam::detect_install(steam_path) {
         release_cdp_marker(&root);
     }
 }
@@ -404,14 +419,24 @@ pub async fn state(api: &ApiClient, steam_path: &str) -> PluginState {
             .map(|tag| manifest.tag.as_deref() != Some(tag) || !dll_matches)
             .unwrap_or(false);
 
+    // Steam decides whether to open its debugging port while it boots. A Steam that was already running when
+    // the plugin was installed — the normal case, since Steam autostarts with Windows — has the marker on
+    // disk but no port, so every store page stays un-injected until it is restarted once. Saying that plainly
+    // is the difference between "the plugin is broken" and "restart Steam".
+    let restart_required = installed && steam::is_running() && !cdp_port_open().await;
+
     // Two different silences: unverified is not a failure, so it names what would fix it instead of blaming
     // the network. Anything else really is the feed being unreachable.
-    let status = match (&release, &release_result) {
-        (Some(_), _) => None,
-        (None, Err(error)) if error.code == "session_required" => {
-            Some("Verify to check for plugin updates.".to_string())
+    let status = if restart_required {
+        Some("Steam is running without its plugin port. Restart Steam once and store pages will load the plugin.".to_string())
+    } else {
+        match (&release, &release_result) {
+            (Some(_), _) => None,
+            (None, Err(error)) if error.code == "session_required" => {
+                Some("Verify to check for plugin updates.".to_string())
+            }
+            _ => Some("Could not reach the release feed. Showing what is installed.".to_string()),
         }
-        _ => Some("Could not reach the release feed. Showing what is installed.".to_string()),
     };
 
     PluginState {
@@ -426,9 +451,25 @@ pub async fn state(api: &ApiClient, steam_path: &str) -> PluginState {
         latest: Some(rebrand::PLUGIN_VERSION.to_string()),
         update_available,
         millennium: root.as_ref().map(|path| millennium_present(path)).unwrap_or(false),
+        restart_required,
         steam_path: root.map(|path| path.to_string_lossy().to_string()),
         status,
     }
+}
+
+/// Whether Steam's CEF debugging port answers on loopback.
+///
+/// Short on purpose: this runs on the Plugin page's mount path, and a port with nothing listening refuses
+/// the connection immediately. The timeout only covers the pathological case of a firewall dropping it.
+async fn cdp_port_open() -> bool {
+    matches!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(300),
+            tokio::net::TcpStream::connect(("127.0.0.1", 8080)),
+        )
+        .await,
+        Ok(Ok(_))
+    )
 }
 
 /* ── Install / uninstall ──────────────────────────────────────────────────────────────────── */
@@ -565,7 +606,7 @@ async fn install_inner(
     #[cfg(not(windows))]
     let dll_sha: Option<String> = None;
 
-    ensure_cdp_marker(root);
+    let _ = ensure_cdp_marker(root);
 
     write_manifest(&Manifest {
         tag: Some(tag.to_string()),

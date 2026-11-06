@@ -761,18 +761,19 @@ input::placeholder {
   color: var(--text);
 }
 
-/* The accent gallery, two rows of thirteen: Steamware's own palette, then the muted rainbow steps beside it.
- * A grid rather than a wrapping strip so the rows are always even, however wide the window is, and so the
- * description above it keeps the whole width of the card. */
+/* The accent gallery, five rows of five: Steamware's own palette, then the muted rainbow steps beside it.
+ * A square rather than a wrapping strip, so the set stays one compact block at every width and reads as a
+ * palette instead of a line of dots with two left over. */
 .swatches {
   display: grid;
-  grid-template-columns: repeat(13, 24px);
-  gap: 8px;
+  grid-template-columns: repeat(5, 26px);
+  gap: 9px;
+  margin-top: 3px;
 }
 
 .swatch {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   border: 2px solid transparent;
   padding: 0;
@@ -1540,70 +1541,113 @@ input::placeholder {
 }
 
 .page-inner.settings-page {
-  max-width: 760px;
+  max-width: 960px;
   margin: 0 auto;
 }
 
-.settings-groups {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.set-group {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-.set-caption {
-  margin-left: 2px;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+/* Auto-save feedback, where the Save button used to be: quiet when things are fine, amber when a write
+ * failed, and never a button of its own. */
+.settings-status {
+  min-width: 72px;
+  padding-right: 2px;
+  font-size: 11.5px;
   color: var(--muted);
+  text-align: right;
 }
 
-.set-card {
-  overflow: hidden;
-  padding: 0;
+.settings-status.failed {
+  color: var(--warn);
+}
+
+/* Settings as a stack of bands: each group gets an accent plate carrying its name and purpose, and the
+ * fields run the full width beneath it. One control column on the right, so the eye scans a single edge. */
+.settings-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  margin-top: 4px;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 12px;
+  padding: 10px 14px;
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.settings-section-head h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.03px;
+  color: color-mix(in srgb, var(--accent) 56%, var(--text));
+}
+
+.settings-section-head p {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.settings-section-body {
+  min-width: 0;
+}
+
+.settings-section-body .set-row:first-child {
+  padding-top: 16px;
 }
 
 .set-row {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 13px 16px;
+  gap: 28px;
+  padding: 18px 0;
   border-top: 1px solid var(--hairline);
 }
 
 .set-row:first-child {
+  padding-top: 0;
   border-top: 0;
+}
+
+.set-row:last-child {
+  padding-bottom: 0;
 }
 
 .set-row.column {
   flex-direction: column;
   align-items: stretch;
-  gap: 8px;
+  gap: 9px;
 }
 
 .set-row .grow {
+  flex: 1 1 auto;
   min-width: 0;
 }
 
 .set-title {
   display: flex;
   align-items: center;
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text);
 }
 
 .set-desc {
-  margin-top: 2px;
-  font-size: 11px;
-  line-height: 1.5;
+  margin-top: 3px;
+  max-width: 58ch;
+  font-size: 11.5px;
+  line-height: 1.55;
   color: var(--text-2);
 }
 
@@ -1611,7 +1655,24 @@ input::placeholder {
   display: flex;
   flex: none;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
+  min-width: 188px;
+}
+
+/* A block's control belongs under its words, not after its description. */
+.set-row.column .set-control {
+  order: 3;
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.set-row.column .set-desc {
+  order: 2;
+  margin-top: 0;
+  max-width: 66ch;
 }
 
 /* An inline link inside a Settings description: the sentence stays prose and only the one word acts. */
@@ -1640,20 +1701,27 @@ input::placeholder {
 }
 
 .set-input {
-  flex: none;
-  width: 270px;
-  padding: 6px 10px;
-  border-radius: var(--r-lg);
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  height: 30px;
+  padding: 5px 10px;
+  border-radius: var(--r-md);
   border: 1px solid var(--stroke);
   background: var(--surface-subtle);
   color: var(--text);
-  font-size: 12px;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 11.5px;
   outline: none;
+  transition: border-color 0.12s ease, background 0.12s ease;
 }
 
 .set-input.wide {
-  width: 300px;
   min-width: 0;
+}
+
+.set-input::placeholder {
+  color: var(--muted);
 }
 
 /* A control that owns the whole row beneath its label — the folder paths and the Hubcap key are long enough
@@ -1671,13 +1739,15 @@ input::placeholder {
 
 .set-input:focus {
   border-color: var(--accent-line);
+  background: var(--surface);
 }
 
 .set-select {
   flex: none;
-  min-width: 96px;
-  padding: 6px 9px;
-  border-radius: var(--r-lg);
+  min-width: 190px;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: var(--r-md);
   border: 1px solid var(--stroke);
   background: var(--surface-subtle);
   color: var(--text);
@@ -1690,12 +1760,30 @@ input::placeholder {
 }
 
 @media (max-width: 720px) {
-  .set-row {
-    flex-wrap: wrap;
+  .settings-sheet {
+    gap: 30px;
   }
 
-  .set-input {
-    width: 100%;
+  .set-row {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .set-row .grow {
+    flex-basis: 100%;
+  }
+
+  .set-row.column .grow {
+    flex-basis: auto;
+  }
+
+  .set-control {
+    min-width: 0;
+    margin-left: auto;
+  }
+
+  .set-row.column .set-control {
+    margin-left: 0;
   }
 }
 
@@ -2006,60 +2094,252 @@ input::placeholder {
 
 /* Mode */
 
-.mode-list {
+/* The page is a switchboard, not a shop: the engaged mode owns one plate, the alternatives are rows, and
+   the cloud redirect is a switch beside them rather than a fourth card pretending to be a mode. */
+
+/* A switchboard fills the window. The plate and its alternatives take the wide column; the two things that
+   are not choices — cloud redirect, and what lands in Steam's root — sit beside them instead of stacking
+   under, which is what left most of a 1400px window empty. */
+.mode-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(290px, 0.85fr);
+  gap: 26px;
+  align-items: start;
+}
+
+.mode-main {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-
-.mode-card {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 18px;
-  background: var(--surface);
-  border: 1px solid var(--stroke);
-  border-radius: var(--r-2xl);
-}
-
-.mode-body {
-  flex: 1;
+  gap: 22px;
   min-width: 0;
 }
 
-.mode-title {
+.mode-aside {
   display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 15px;
-  font-weight: 600;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
 }
 
-.mode-title svg {
-  color: var(--accent-bright);
-}
-
-.mode-desc {
-  margin: 6px 0 0;
-  font-size: 12px;
-  color: var(--text-2);
-}
-
-.mode-status {
-  margin: 6px 0 0;
+.mode-banner {
+  padding: 11px 14px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--stroke);
+  background: var(--surface-subtle);
   font-size: 12.5px;
   color: var(--text-2);
 }
 
-.mode-action {
-  flex: none;
+.mode-banner.warn {
+  border-color: color-mix(in srgb, var(--warn) 32%, transparent);
+  background: var(--warn-wash);
+  color: var(--warn);
+}
+
+.mode-current {
+  position: relative;
+  padding: 15px 18px 12px 20px;
+  border-radius: var(--r-2xl);
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  overflow: hidden;
+}
+
+/* One accent spine on the plate that is actually engaged; nothing else on the page gets one. */
+.mode-current::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--accent);
+}
+
+.mode-current-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 24px;
+}
+
+.mode-current-head > svg {
+  color: var(--accent-bright);
+}
+
+.mode-current-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+}
+
+.mode-version {
+  font-size: 11.5px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.mode-current-action {
+  margin-left: auto;
+}
+
+.mode-desc {
+  margin: 7px 0 0;
+  max-width: 62ch;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.mode-status {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.mode-current-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+}
+
+.mode-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.mode-state-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.mode-state.ok .mode-state-dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 14%, transparent);
+}
+
+.mode-state.warn .mode-state-dot {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 14%, transparent);
+}
+
+.mode-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.mode-empty-note {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.mode-switch {
+  display: flex;
+  flex-direction: column;
+}
+
+.mode-switch-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+  border-top: 1px solid var(--hairline);
+}
+
+.mode-switch-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 20px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.mode-switch-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.mode-switch-row .mode-desc {
+  margin-top: 3px;
+  /* The row is already bounded by its own grid column; the reading measure is for free-standing prose. */
+  max-width: none;
+  font-size: 12px;
+}
+
+.mode-switch-row .mode-status {
+  margin-top: 2px;
+  font-size: 11px;
+}
+
+.mode-cloud {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding: 15px 16px;
+  border-radius: var(--r-xl);
+  border: 1px solid var(--hairline);
+  background: var(--surface-subtle);
+}
+
+.mode-cloud-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.mode-cloud-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mode-cloud-name svg {
+  color: var(--info);
+}
+
+.mode-cloud-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.mode-cloud.locked {
+  opacity: 0.6;
+}
+
+.mode-writes-files {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-strong);
+}
+
+.mode-writes-note {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--muted);
 }
 
 .badge-row {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-left: 2px;
 }
 
 .pill.info {
@@ -2067,26 +2347,16 @@ input::placeholder {
   color: var(--info);
 }
 
-.cloud-card.locked {
-  opacity: 0.55;
-}
-
-.cloud-grid {
+/* The plugin page's "restart Steam" line: one sentence and the button that resolves it. */
+.plugin-restart {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
 }
 
-.cloud-grid > div:first-child {
-  flex: 1;
-  min-width: 0;
-}
-
-.cloud-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 104px;
+.plugin-restart > .grow {
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .stack-tight {
@@ -2416,13 +2686,22 @@ input::placeholder {
 }
 
 @media (max-width: 760px) {
-  .mode-card,
-  .cloud-grid {
-    flex-direction: column;
-    align-items: stretch;
+  .mode-switch-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
   }
   .components {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Below this the aside would be narrower than its buttons, so it goes under the list instead. */
+@media (max-width: 1080px) {
+  .mode-grid {
+    grid-template-columns: 1fr;
+  }
+  .mode-aside {
+    gap: 18px;
   }
 }
 

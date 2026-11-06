@@ -1,14 +1,5 @@
 import { useState } from "react";
-import {
-  Check,
-  Cloud,
-  ArrowRight,
-  RefreshCw,
-  ShieldCheck,
-  Star,
-  TriangleAlert,
-  Wrench,
-} from "lucide-react";
+import { Cloud, RefreshCw, Star, TriangleAlert, Wrench } from "lucide-react";
 import { api, toFailure, useAsync, type ModeCard, type ModesState } from "./lib";
 import { PageHead, SectionHead } from "./components";
 import type { PageApi } from "./pages";
@@ -24,12 +15,6 @@ function actionLabel(card: ModeCard): string | null {
 function ModeBadges({ card }: { card: ModeCard }) {
   return (
     <span className="badge-row">
-      {card.active && (
-        <span className="pill ok">
-          <Check size={11} />
-          Active
-        </span>
-      )}
       {card.recommended && (
         <span className="pill info">
           <Star size={10} />
@@ -42,12 +27,6 @@ function ModeBadges({ card }: { card: ModeCard }) {
           Experimental
         </span>
       )}
-      {card.managed && (
-        <span className="pill">
-          <Cloud size={10} />
-          CloudRedirect
-        </span>
-      )}
     </span>
   );
 }
@@ -58,6 +37,9 @@ export function ModePage({ app }: { app: PageApi }) {
   const [confirm, setConfirm] = useState<ModeCard | null>(null);
 
   const state: ModesState | null = modes.data;
+  const cards = state?.cards ?? [];
+  const active = cards.find((card) => card.active) ?? null;
+  const others = cards.filter((card) => !card.active);
 
   async function install(card: ModeCard) {
     setConfirm(null);
@@ -94,17 +76,32 @@ export function ModePage({ app }: { app: PageApi }) {
     }
   }
 
+  function actionButton(card: ModeCard, variant: "primary" | "ghost") {
+    const label = actionLabel(card);
+    if (!label) return null;
+    const working = busy === card.id;
+    return (
+      <button
+        className={`btn ${variant}`}
+        disabled={Boolean(busy)}
+        onClick={() => {
+          if (!card.managed) void install(card);
+          else setConfirm(card);
+        }}
+      >
+        {working && <span className="spinner" />}
+        {label}
+      </button>
+    );
+  }
+
   return (
-    <div className="page-inner narrow">
+    <div className="page-inner mode-page">
       <PageHead
         title="Mode"
-        subtitle="Pick one unlocker. They are mutually exclusive, and switching replaces the same three files."
+        subtitle="One unlocker at a time. Switching swaps the same three files in Steam's root."
         actions={
-          <button
-            className="btn ghost"
-            disabled={Boolean(busy) || modes.loading}
-            onClick={() => modes.reload()}
-          >
+          <button className="btn ghost" disabled={Boolean(busy) || modes.loading} onClick={() => modes.reload()}>
             <RefreshCw size={13} />
             Check for updates
           </button>
@@ -112,118 +109,104 @@ export function ModePage({ app }: { app: PageApi }) {
       />
 
       {!state?.steamPath && (
-        <div className="card pad">
-          <div className="section-note">
-            Steam was not found. Set its folder in Settings before installing a mode.
-          </div>
-        </div>
+        <div className="mode-banner">Steam was not found. Set its folder in Settings before installing a mode.</div>
       )}
 
-      {modes.error && (
-        <div className="card pad">
-          <div className="section-note" style={{ color: "var(--warn)" }}>
-            {modes.error.message}
-          </div>
-        </div>
-      )}
+      {modes.error && <div className="mode-banner warn">{modes.error.message}</div>}
 
-      <div className="mode-list">
-        {(state?.cards ?? []).map((card) => {
-          const label = actionLabel(card);
-          const working = busy === card.id;
-          return (
-            <article className="mode-card" key={card.id}>
-              <div className="mode-body">
-                <div className="mode-title">
+      <div className="mode-grid">
+        <div className="mode-main">
+          <section className="mode-current" aria-label="Active unlocker">
+            {active ? (
+              <>
+                <div className="mode-current-head">
                   <Wrench size={16} />
-                  <span>{card.title}</span>
-                  <ModeBadges card={card} />
+                  <h2>{active.title}</h2>
+                  {active.version && <span className="mode-version">{active.version}</span>}
+                  <ModeBadges card={active} />
+                  <div className="mode-current-action">{actionButton(active, "primary")}</div>
                 </div>
-                <p className="mode-desc">{card.description}</p>
-                <p className="mode-status">
-                  {working ? "Working…" : card.status}
-                  {card.active && card.version ? ` · ${card.version}` : ""}
-                </p>
+                <p className="mode-desc">{active.description}</p>
+                <div className="mode-current-foot">
+                  <span className={`mode-state ${active.installed && !active.updateAvailable ? "ok" : "warn"}`}>
+                    <span className="mode-state-dot" />
+                    {busy === active.id ? "Working…" : active.status}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div className="mode-empty">
+                <span>No unlocker is active.</span>
+                <span className="mode-empty-note">Pick one below — nothing is written to Steam until you do.</span>
               </div>
-              {label && (
-                <div className="mode-action">
-                  <button
-                    className={`btn ${card.updateAvailable || !card.installed ? "primary" : ""}`}
-                    disabled={Boolean(busy)}
-                    onClick={() => {
-                      if (!card.managed) void install(card);
-                      else setConfirm(card);
-                    }}
-                  >
-                    {working && <span className="spinner" />}
-                    {label}
-                  </button>
-                </div>
-              )}
-            </article>
-          );
-        })}
-      </div>
+            )}
+          </section>
 
-      {Boolean(busy) && <div className="progress-line" />}
+          {Boolean(busy) && <div className="progress-line" />}
 
-      <section className={`card pad cloud-card ${state?.cloud.unlocked ? "" : "locked"}`}>
-        <div className="cloud-grid">
-          <div>
-            <div className="mode-title">
-              <Cloud size={16} style={{ color: "var(--info)" }} />
-              <span>CloudRedirect</span>
+          {others.length > 0 && (
+            <section className="mode-switch">
+              <SectionHead title="Switch to" />
+              <div className="mode-switch-list">
+                {others.map((card) => (
+                  <div className="mode-switch-row" key={card.id}>
+                    <div className="mode-switch-text">
+                      <div className="mode-switch-name">
+                        {card.title}
+                        <ModeBadges card={card} />
+                      </div>
+                      <p className="mode-desc">{card.description}</p>
+                      {card.managed && <p className="mode-status">{card.status}</p>}
+                    </div>
+                    {actionButton(card, "ghost")}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+
+        <aside className="mode-aside">
+          <section className={`mode-cloud ${state?.cloud.unlocked ? "" : "locked"}`}>
+            <div className="mode-cloud-name">
+              <Cloud size={14} />
+              Cloud saves
             </div>
             <p className="mode-desc">
-              Redirects Steam's cloud saves to a local folder so a restored build does not overwrite them.
+              Redirects Steam's cloud saves to a local folder, so restoring a build cannot overwrite them.
             </p>
             <p className="mode-status">{state?.cloud.status ?? "Checking…"}</p>
-          </div>
-          <div className="cloud-actions">
-            <button
-              className="btn"
-              disabled={Boolean(busy) || !state?.cloud.unlocked}
-              onClick={() => void cloud(!state?.cloud.enabled, false)}
-            >
-              {state?.cloud.enabled ? "Disable" : "Enable"}
-            </button>
-            {state?.cloud.updateAvailable && (
+            <div className="mode-cloud-actions">
               <button
-                className="btn ghost"
+                className="btn"
                 disabled={Boolean(busy) || !state?.cloud.unlocked}
-                onClick={() => void cloud(state?.cloud.enabled ?? true, true)}
+                onClick={() => void cloud(!state?.cloud.enabled, false)}
               >
-                <RefreshCw size={13} />
-                Update
+                {state?.cloud.enabled ? "Turn off" : "Turn on"}
               </button>
-            )}
-          </div>
-        </div>
-      </section>
+              {state?.cloud.updateAvailable && (
+                <button
+                  className="btn ghost"
+                  disabled={Boolean(busy) || !state?.cloud.unlocked}
+                  onClick={() => void cloud(state?.cloud.enabled ?? true, true)}
+                >
+                  <RefreshCw size={13} />
+                  Update
+                </button>
+              )}
+            </div>
+          </section>
 
-      <section className="card pad">
-        <SectionHead title="What Steamware writes" />
-        <div className="stack-tight">
-          <div className="row" style={{ paddingLeft: 0 }}>
-            <ShieldCheck size={15} style={{ color: "var(--ok)" }} />
-            <div className="grow">
-              <div className="title">Three files, nothing else</div>
-              <div className="meta">
-                dwmapi.dll, xinput1_4.dll and OpenSteamTool.dll in the Steam root, plus a lua path entry.
-              </div>
-            </div>
-          </div>
-          <div className="row" style={{ paddingLeft: 0 }}>
-            <ArrowRight size={15} />
-            <div className="grow">
-              <div className="title">Verified before it lands</div>
-              <div className="meta">
-                The archive is checked against the release's published checksum; a mismatch writes nothing.
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+          <section className="mode-writes">
+            <SectionHead title="What Steamware writes" />
+            <p className="mode-writes-files">dwmapi.dll, xinput1_4.dll, OpenSteamTool.dll</p>
+            <p className="mode-writes-note">
+              One lua path entry beside them. Each archive is checked against its published SHA-256 before a byte
+              is written.
+            </p>
+          </section>
+        </aside>
+      </div>
 
       {confirm && (
         <div className="scrim" onClick={() => setConfirm(null)}>
@@ -232,8 +215,8 @@ export function ModePage({ app }: { app: PageApi }) {
               {confirm.active ? "Reinstall" : "Switch to"} {confirm.title}?
             </h2>
             <p>
-              Steam will close while the files are replaced, then reopen on its own. Your library and saves
-              are not touched.
+              Steam will close while the files are replaced, then reopen on its own. Your library and saves are
+              not touched.
             </p>
             <div className="actions">
               <button className="btn ghost" onClick={() => setConfirm(null)}>

@@ -804,6 +804,193 @@ pub async fn pick_archive(app: AppHandle) -> AppResult<Option<String>> {
         .map(|path| path.to_string_lossy().to_string()))
 }
 
+/// The largest single file the drop zone will take. A manifest is at most a few hundred megabytes, so anything
+/// past this is a mistake rather than a game.
+const MAX_IMPORT_BYTES: u64 = 512 << 20;
+
+/// One file the user dropped or picked.
+///
+/// A picker hands over a path; a drop hands over the bytes, because the webview is given a `File` with no path
+/// on disk. Both arrive here so there is one install path rather than two.
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportFile {
+    pub name: String,
+    pub path: Option<String>,
+    pub data: Option<String>,
+}
+
+/// Whether these bytes are Lua source rather than something else.
+fn looks_like_lua(bytes: &[u8]) -> bool {
+    let window = &bytes[..bytes.len().min(8 << 10)];
+    let text = String::from_utf8_lossy(window);
+    text.contains("addappid") || text.contains("setManifestid") || text.contains("addtoken")
+}
+
+fn merge(total: &mut crate::lua::InstallSummary, part: crate::lua::InstallSummary) {
+    total.lua += part.lua;
+    total.manifests += part.manifests;
+    total.live |= part.live;
+    total.library |= part.library;
+    total.steam_running = part.steam_running;
+}
+
+/// Stage `entries` as a temporary archive and install it.
+///
+/// `install_archive` speaks zip and a drop does not always arrive as one, so a loose `.lua` or `.manifest` is
+/// packed into an archive first. That keeps the unpin rule, the "only the base lua gets a library entry" rule
+/// and the library hand-off in the single place that already does all three.
+fn staging_failed() -> AppError {
+    AppError::new("temp_failed", "Could not stage that file to install it.")
+}
+
+fn repack(
+    entries: &[(String, Vec<u8>)],
+    steam_path: &str,
+    unpin: bool,
+) -> AppResult<crate::lua::InstallSummary> {
+    use std::io::Write as _;
+
+    let path = std::env::temp_dir().join(format!(
+        "steamware-drop-{}-{}.zip",
+        std::process::id(),
+        rand::random::<u32>()
+    ));
+    {
+        let file = std::fs::File::create(&path).map_err(|_| staging_failed())?;
+        let mut writer = zip::ZipWriter::new(file);
+        let options =
+            zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        for (name, bytes) in entries {
+            let bare = name.rsplit(['/', '\\']).next().unwrap_or(name);
+            if bare.is_empty() {
+                continue;
+            }
+            writer.start_file(bare, options).map_err(|_| staging_failed())?;
+            writer.write_all(bytes).map_err(|_| staging_failed())?;
+        }
+        writer.finish().map_err(|_| staging_failed())?;
+    }
+    let outcome = crate::lua::install_archive(&path.to_string_lossy(), steam_path, unpin);
+    let _ = std::fs::remove_file(&path);
+    outcome
+}
+
+/// Install a batch of dropped or picked files, reporting one summary for the lot.
+fn install_payload(
+    files: Vec<(String, Vec<u8>)>,
+    steam_path: &str,
+    unpin: bool,
+) -> AppResult<crate::lua::InstallSummary> {
+    let mut total = crate::lua::InstallSummary::default();
+    let mut loose: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut refusal: Option<AppError> = None;
+
+    for (name, bytes) in files {
+        let lower = name.to_ascii_lowercase();
+        // A `.ua` is one of these two things with a friendlier name, so it is decided by content, not suffix.
+        if lower.ends_with(".zip") || bytes.starts_with(b"PK\x03\x04") {
+            match repack(&[(name, bytes)], steam_path, unpin) {
+                Ok(summary) => merge(&mut total, summary),
+                Err(error) => refusal = Some(error),
+            }
+        } else if lower.ends_with(".lua")
+            || lower.ends_with(".manifest")
+            || lower.ends_with(".ua")
+            || looks_like_lua(&bytes)
+        {
+            loose.push((name, bytes));
+        } else {
+            refusal = Some(AppError::new(
+                "bad_file",
+                format!("{name} is not a .lua, .manifest or .zip file."),
+            ));
+        }
+    }
+
+    if !loose.is_empty() {
+        match repack(&loose, steam_path, unpin) {
+            Ok(summary) => merge(&mut total, summary),
+            Err(error) => refusal = Some(error),
+        }
+    }
+
+    if total.total() == 0 {
+        return Err(refusal.unwrap_or_else(|| {
+            AppError::new("no_lua", "That file did not contain any .lua or .manifest files.")
+        }));
+    }
+    Ok(total)
+}
+
+/// Install whatever the user dropped or picked: a `.zip`, a `.lua`, a `.manifest`, or a `.ua` holding one.
+#[tauri::command]
+pub async fn install_files(
+    state: State<'_, AppState>,
+    files: Vec<ImportFile>,
+) -> AppResult<crate::lua::InstallSummary> {
+    use base64::Engine as _;
+
+    let settings = state.settings_snapshot();
+    if files.is_empty() {
+        return Err(AppError::new("no_files", "No files were chosen."));
+    }
+
+    let mut payload: Vec<(String, Vec<u8>)> = Vec::with_capacity(files.len());
+    for file in files {
+        let bytes = match (file.path, file.data) {
+            (Some(path), _) => tokio::fs::read(&path).await.map_err(|_| {
+                AppError::new("read_failed", format!("Could not read {}.", file.name))
+            })?,
+            (None, Some(data)) => base64::engine::general_purpose::STANDARD
+                .decode(data.as_bytes())
+                .map_err(|_| {
+                    AppError::new(
+                        "read_failed",
+                        format!("{} did not arrive in one piece.", file.name),
+                    )
+                })?,
+            (None, None) => continue,
+        };
+        if bytes.len() as u64 > MAX_IMPORT_BYTES {
+            return Err(AppError::new(
+                "too_big",
+                format!("{} is too large to add.", file.name),
+            ));
+        }
+        payload.push((file.name, bytes));
+    }
+
+    install_payload(payload, &settings.steam_path, settings.auto_update_apps)
+}
+
+/// Native picker for the files the drop zone accepts.
+///
+/// `pick_archive` is zip-only and serves the "fix archive" button; this one offers the loose types too, because
+/// a user holding a single `.manifest` has nothing else to click.
+#[tauri::command]
+pub async fn pick_files(app: AppHandle) -> AppResult<Vec<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Choose .lua, .manifest or .zip files")
+        .add_filter("Manifests and lua", &["lua", "manifest", "ua"])
+        .add_filter("Archives", &["zip"])
+        .pick_files(move |paths| {
+            let _ = sender.send(paths);
+        });
+    let picked = receiver
+        .await
+        .map_err(|_| AppError::new("dialog", "The file picker closed unexpectedly."))?;
+    Ok(picked
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|path| path.into_path().ok())
+        .map(|path| path.to_string_lossy().to_string())
+        .collect())
+}
+
 #[tauri::command]
 pub async fn pick_folder(app: AppHandle) -> AppResult<Option<String>> {
     use tauri_plugin_dialog::DialogExt;

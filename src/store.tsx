@@ -523,22 +523,13 @@ export function StorePage({ app }: { app: PageApi }) {
       <div className="already">
         <div className="already-title">Already have the files?</div>
         <FileDropZone
-          onPicked={async () => {
-            const path = await app.run(() => api.pickArchive());
-            if (!path) return;
-            const done = await app.run(() => api.installLua(path));
-            if (done) {
-              app.notify(
-                "ok",
-                "Installed into Steam",
-                done.live
-                  ? `${done.lua} lua · ${done.manifests} manifest${done.manifests === 1 ? "" : "s"} — Steam picks them up straight away.`
-                  : `${done.lua} lua · ${done.manifests} manifest${done.manifests === 1 ? "" : "s"} — restart Steam once so it reads them.`,
-              );
-            }
-          }}
-          title="Drop .lua, .manifest or .zip files here"
-          subtitle="— or drag a SteamDB / Steam store link to add that game."
+          onDone={(summary) =>
+            app.notify(
+              "ok",
+              "Installed into Steam",
+              `${summary.lua} lua · ${summary.manifests} manifest${summary.manifests === 1 ? "" : "s"} — Steam lists it and waits for you to press Install.`,
+            )
+          }
         />
       </div>
 

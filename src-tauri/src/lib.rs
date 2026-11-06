@@ -56,6 +56,16 @@ pub fn run() {
                     .unwrap_or_default();
                 plugin::ensure_marker_if_installed(&steam_path);
             }
+            // Older builds wrote Steam's library record as "update required", and Steam marks that app for
+            // download on its next start. Repair what is already on disk before Steam gets the chance.
+            {
+                let steam_path = state
+                    .settings
+                    .lock()
+                    .map(|settings| settings.steam_path.clone())
+                    .unwrap_or_default();
+                steam::heal_stub_flags(&steam_path);
+            }
             let token = local_api::bridge_token();
             local_api::LocalApi::start(
                 app.handle().clone(),
@@ -136,7 +146,9 @@ pub fn run() {
             commands::open_external,
             commands::reveal_path,
             commands::install_lua_from_zip,
+            commands::install_files,
             commands::pick_archive,
+            commands::pick_files,
             commands::pick_folder,
             commands::window_minimize,
             commands::window_toggle_maximize,
@@ -148,20 +160,13 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("Steamware failed to start")
-        .run(|app, event| {
-            // Closing the app must close the door it opened: the plugin's own marker is removed here so the
-            // next Steam launch does not come up with an unauthenticated CEF debug port on loopback. A marker
-            // somebody else created (Millennium's, say) is left alone by `release_marker_for`.
-            if matches!(event, tauri::RunEvent::Exit) {
-                let steam_path = app
-                    .state::<AppState>()
-                    .settings
-                    .lock()
-                    .map(|settings| settings.steam_path.clone())
-                    .unwrap_or_default();
-                plugin::release_marker_for(&steam_path);
-            }
-        });
+        // Nothing is torn down on exit on purpose. The CEF marker has to be in Steam's root *before* Steam
+        // boots, because that is the only moment Steam decides whether to open its debugging port. Removing
+        // it on quit meant a Steam that started before Steamware — the normal case, since Steam autostarts
+        // with Windows — came up with no port, and the store-page plugin stayed invisible until the user
+        // restarted Steam by hand. The marker is removed by the uninstall path instead, which is where it
+        // belongs: the port exists to serve this plugin, and the plugin is no longer there.
+        .run(|_app, _event| {});
 }
 
 /// The notification-area icon and its two commands.

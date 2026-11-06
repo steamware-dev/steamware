@@ -5,3 +5,11 @@ src-tauri/gen/
 
 # CI leftovers
 .work-*
+
+# Local secrets and signing material
+.env
+.env.*
+.dev.vars
+*.pem
+*.p12
+*.pfx

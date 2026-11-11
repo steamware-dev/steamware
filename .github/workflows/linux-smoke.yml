@@ -1,0 +1,69 @@
+name: Linux package smoke
+
+on:
+  push:
+    tags:
+      - "linux-smoke-*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  install:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-22.04
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Debian 12
+            image: debian:12
+            package_glob: "*.deb"
+            install: |
+              apt-get install -y ./pkg/*.deb
+          - name: Fedora 43
+            image: fedora:43
+            package_glob: "*.rpm"
+            install: |
+              dnf install -y ./pkg/*.rpm
+    steps:
+      - name: Install download prerequisites
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if command -v apt-get >/dev/null; then
+            apt-get update
+            apt-get install -y ca-certificates curl
+          else
+            dnf install -y ca-certificates curl
+          fi
+
+      - name: Download the Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: steamware-linux-deb-rpm
+          path: artifact
+          run-id: 43030958726
+          repository: ${{ github.repository }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install the package
+        shell: bash
+        run: |
+          set -euxo pipefail
+          package="$(find artifact -type f -name '${{ matrix.package_glob }}' | head -1)"
+          test -n "$package"
+          mkdir -p pkg
+          cp "$package" pkg/
+          ${{ matrix.install }}
+
+      - name: Check for missing shared libraries
+        shell: bash
+        run: |
+          set -euxo pipefail
+          command -v steamware
+          ldd "$(command -v steamware)" | tee ldd.txt
+          ! grep -q "not found" ldd.txt

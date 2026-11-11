@@ -181,6 +181,7 @@ fn marker_is_ours(steam_root: &Path) -> bool {
 /// port it opens, so a Steam install without it looks exactly like a plugin that does nothing at all.
 ///
 /// A marker we did not create is left exactly as it is, and `release_cdp_marker` will not remove it.
+#[cfg(windows)]
 pub(crate) fn ensure_cdp_marker(steam_root: &Path) -> bool {
     use std::os::windows::fs::MetadataExt;
     use std::os::windows::process::CommandExt;

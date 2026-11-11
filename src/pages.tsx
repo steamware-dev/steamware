@@ -416,7 +416,22 @@ export function LibraryPage({
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(LIB_PAGE_SIZE);
   const [selected, setSelected] = useState<OwnedGame | null>(null);
-  const owned = useAsync(() => api.libraryOwned(), [steam.ownedCount, steam.installPath]);
+  const owned = useAsync(() => api.libraryOwned(), [steam.ownedCount, steam.installPath, steam.gameCount]);
+
+  // A Steam download finishing changes gameCount, not the Lua count. Without this dependency and a focus
+  // refresh, the page keeps the old "not installed" snapshot until a Lua add/remove forces a refetch.
+  useEffect(() => {
+    const refresh = () => {
+      if (document.hidden) return;
+      owned.reload();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [owned.reload]);
 
   const all = useMemo(() => owned.data ?? [], [owned.data]);
 
@@ -453,12 +468,17 @@ export function LibraryPage({
 
   const installed = all.filter((game) => game.installed).length;
 
+  const refreshLibrary = () => {
+    onRefresh();
+    owned.reload();
+  };
+
   return (
     <div className="page-inner lib-page">
       <div className="home-head">
         <h1>Library</h1>
         <div className="head-actions">
-          <button className="btn ghost" onClick={onRefresh}>
+          <button className="btn ghost" onClick={refreshLibrary}>
             <RefreshCw size={13} />
             Refresh
           </button>

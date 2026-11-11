@@ -321,7 +321,7 @@ fn parse_release(json: &Value) -> Option<Release> {
         assets.iter().find_map(|asset| {
             let name = asset.get("name")?.as_str()?;
             let lower = name.to_lowercase();
-            // Tauri names the bundle `Steamware_1.0.4_x64-setup.exe`. "installer" is accepted too, so a
+            // Tauri names the bundle `Steamware_<version>_x64-setup.exe`. "installer" is accepted too, so a
             // rename in the release does not quietly disable in-app updates — but a bare `.exe` is not,
             // because the releases also carry the standalone builds, and running one of those would put a
             // second copy next to the installed app instead of upgrading it.

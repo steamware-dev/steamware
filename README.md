@@ -1,7 +1,8 @@
 # Steamware — Rust + Tauri
 
 The desktop client, rebuilt. Same design language as the WPF app, none of its network code: every request
-goes to the Worker, which holds the provider keys. The desktop binary contains no provider key.
+goes to the Worker in [`../backend`](../backend), which holds the provider keys. See
+[`../SECURITY.md`](../SECURITY.md) for the model.
 
 ## Status
 
@@ -34,7 +35,7 @@ The store-page plugin is fully served by this build, with no WPF app needed alon
   presence, remove, fixes, settings, restart, links). It is loopback-only and every request must carry the
   per-run bridge token the injector holds; a local web page cannot call it.
 
-The older WPF build still works and was not deleted.
+The WPF build remains in `../LuaTools-main` and still works; nothing was deleted.
 
 ## What the desktop asks the Worker for
 
@@ -168,7 +169,7 @@ things make that work, and all three are the release process:
    `src-tauri/Cargo.toml` — then build. The version compiled into the binary is what every client compares.
 2. **Publish with a `v<version>` tag, not as a pre-release.** `/latest` ignores drafts and pre-releases, so
    those are invisible to the gate. That is how to stage a release, and also how to call one back.
-3. **Attach the NSIS setup**, with `setup` or `installer` in its name (`Steamware_1.0.4_x64-setup.exe` is what
+3. **Attach the NSIS setup**, with `setup` or `installer` in its name (`Steamware_<version>_x64-setup.exe` is what
    the build produces). The gate downloads that asset, checks its SHA-256 against GitHub's digest, and runs it
    silently after quitting. Without it the gate still blocks but sends people to the release page; the
    standalone `-regular.exe` / `-tiny.exe` assets are deliberately never used, since running one would put a

@@ -182,6 +182,8 @@ export interface FixGame {
   name: string;
   headerImage: string | null;
   capsuleImage: string | null;
+  /** The provider that supplied this entry; community fallback entries are labeled in the UI. */
+  source?: string;
   fixes: FixEntry[];
 }
 
@@ -189,6 +191,8 @@ export interface FixCatalog {
   ok: boolean;
   count: number;
   availableTags: string[];
+  /** Present when the server used a community fallback catalog. */
+  source?: string;
   games: FixGame[];
 }
 

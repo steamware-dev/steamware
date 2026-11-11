@@ -913,6 +913,24 @@ input::placeholder {
   display: block;
 }
 
+.fix-card .art .fix-art-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 12px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.fix-card .fix-source {
+  font-size: 9.5px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .fix-card .content {
   padding: 9px 10px 10px;
   display: flex;

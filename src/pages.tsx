@@ -680,6 +680,7 @@ export function FixesPage({
   const providerReady = config.data?.sources.find((source) => source.id === "depotbox")?.fixes;
 
   const games = catalog.data?.games ?? [];
+  const usingFallback = catalog.data?.source === "CrakFiles";
 
   return (
     <div className="page-inner">
@@ -687,7 +688,7 @@ export function FixesPage({
         title="Fixes"
         subtitle={
           catalog.data
-            ? `${formatCount(catalog.data.count)} games with a fix · refreshed live, nothing cached`
+            ? `${formatCount(catalog.data.count)} games with a fix · ${usingFallback ? "community fallback · CrakFiles" : "refreshed live"}`
             : "Online fixes and bypasses for Steam games"
         }
         actions={
@@ -713,13 +714,20 @@ export function FixesPage({
         </div>
       </div>
 
+      {usingFallback && (
+        <div className="section-note">
+          DepotBox has no fixes right now. Showing the community CrakFiles list; downloads are proxied from
+          pixeldrain.
+        </div>
+      )}
+
       {!app.authenticated ? (
         <VerifyCard
           title="Verification required"
           detail="Verify once to load the fixes catalog for the games in your library."
           action={app.beginAuth}
         />
-      ) : providerReady === false ? (
+      ) : providerReady === false && !usingFallback ? (
         <Empty
           icon={<Wrench />}
           title="Fixes are unavailable right now"

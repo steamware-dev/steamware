@@ -415,17 +415,24 @@ export function StoreTile({ item, onClick }: { item: StoreItem; onClick?: () => 
 
 export function FixCard({ game, onDownload }: { game: FixGame; onDownload: (game: FixGame) => void }) {
   const fix = game.fixes[0];
-  const src = useCover(game.capsuleImage || steamCapsule(game.appid));
+  // Community fallback entries have a synthetic appid. Do not turn that into a broken Steam CDN URL.
+  const src = useCover(
+    game.capsuleImage || (/^\d+$/.test(game.appid) ? steamCapsule(game.appid) : null),
+  );
+  const source = game.source === "CrakFiles" ? "CrakFiles community" : game.source || "DepotBox";
   const tags = Array.from(new Set(game.fixes.flatMap((entry) => entry.tags.map((tag) => tag.toLowerCase()))));
 
   return (
     <article className="fix-card">
       <div className="art">
-        {src ? <img src={src} alt="" loading="lazy" /> : null}
+        {src ? <img src={src} alt="" loading="lazy" /> : <div className="fix-art-empty">{game.name.slice(0, 28)}</div>}
       </div>
       <div className="content">
         <div className="name" title={game.name}>
           {game.name}
+        </div>
+        <div className="fix-source" title="Source of this fix catalog entry">
+          {source}
         </div>
         <div className="tags">
           {tags.slice(0, 3).map((tag) => (

@@ -1,10 +1,12 @@
 name: Linux package smoke
 
 on:
-  push:
-    tags:
-      - "linux-smoke-*"
   workflow_dispatch:
+    inputs:
+      run-id:
+        description: Release workflow run containing steamware-linux-deb-rpm
+        required: true
+        default: "43513930192"
 
 permissions:
   contents: read
@@ -46,7 +48,7 @@ jobs:
         with:
           name: steamware-linux-deb-rpm
           path: artifact
-          run-id: 43030958726
+          run-id: ${{ inputs.run-id }}
           repository: ${{ github.repository }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 

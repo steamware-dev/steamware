@@ -4,8 +4,9 @@
 //! the community invite as a working "Download" button. Nothing is read from the Steam library, no account
 //! data, nothing that is not already on screen.
 //!
-//! **How it works.** Discord's desktop client listens on a local named pipe (`discord-ipc-0`…`-9`) and
-//! speaks its own framing: `[u32 opcode][u32 length][utf8 json]`, little-endian. There is no bot token and no
+//! **How it works.** Discord's desktop client listens on a local IPC endpoint — a named pipe on Windows, a
+//! Unix domain socket on Linux and macOS (`discord-ipc-0`…`-9`) — and speaks its own framing:
+//! `[u32 opcode][u32 length][utf8 json]`, little-endian. There is no bot token and no
 //! network call — presence is the application's own public identity. The application id ships with the
 //! build, exactly as the old WPF build's one-time Discord dialog did; the preset art and button live in
 //! that application. A profile may still override it, but the Settings page does not display it. It is spoken by hand rather than through a crate so that nothing extra
@@ -16,7 +17,7 @@
 //! more often than `MIN_SEND` (which is Discord's documented 5-per-20-seconds ceiling). While Discord is not
 //! running it retries on a slow tick; while the setting is off it does nothing at all.
 //!
-//! The writer and the reader share one pipe handle: Discord sends PING frames and closes the socket of a
+//! The writer and the reader share one handle: Discord sends PING frames and closes the socket of a
 //! client that stops answering, which is the usual reason a presence disappears after ten minutes, so the
 //! reader answers them and also watches for the READY dispatch (a `SET_ACTIVITY` sent before handshaking
 //! finishes is silently dropped by some Discord builds).
@@ -521,15 +522,36 @@ fn peek_bytes(pipe: &File) -> Option<u32> {
     }
 }
 
+/// Open Discord's endpoint. Windows exposes a named pipe, which `OpenOptions` opens like a file; a unix host
+/// has a socket file instead, where `open(2)` fails with `ENXIO` — it has to be dialled, then handed to the
+/// same `File` so the framing above stays one implementation.
+fn dial(path: &str) -> std::io::Result<File> {
+    #[cfg(windows)]
+    {
+        std::fs::OpenOptions::new().read(true).write(true).open(path)
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::{FromRawFd, IntoRawFd};
+        let socket = std::os::unix::net::UnixStream::connect(path)?;
+        // `File` is only the descriptor; the socket keeps its read/write and `FIONREAD` behaviour.
+        Ok(unsafe { File::from_raw_fd(socket.into_raw_fd()) })
+    }
+}
+
 impl Connection {
     fn open(app_id: &str) -> Option<Connection> {
         (0..MAX_SOCKET).find_map(|index| Self::open_at(index, app_id))
     }
 
     fn open_at(index: u8, app_id: &str) -> Option<Connection> {
-        let mut pipe = socket_paths(index).into_iter().find_map(|path| {
-            std::fs::OpenOptions::new().read(true).write(true).open(path).ok()
-        })?;
+        socket_paths(index).into_iter().find_map(|path| Self::connect(&path, app_id))
+    }
+
+    /// Dial one endpoint and send the handshake. Split from `open_at` so the unix test can point it at a
+    /// temporary socket instead of the real Discord path.
+    fn connect(path: &str, app_id: &str) -> Option<Connection> {
+        let mut pipe = dial(path).ok()?;
         send(&mut pipe, OP_HANDSHAKE, &json!({ "v": 1, "client_id": app_id })).ok()?;
         Some(Connection { app_id: app_id.to_string(), pipe, ready: false, closed: false })
     }
@@ -870,5 +892,35 @@ mod tests {
         assert_eq!(presence.page(), "store");
         presence.set_page("   ");
         assert_eq!(presence.page(), "store", "an empty key leaves the last page alone");
+    }
+
+    /// `open(2)` on a unix socket file fails with ENXIO; the endpoint has to be dialled. A temporary listener
+    /// stands in for Discord, so this also pins the handshake framing.
+    #[cfg(unix)]
+    #[test]
+    fn a_unix_socket_is_dialled_and_answers_with_a_handshake() {
+        use std::io::Read as _;
+        use std::os::unix::net::UnixListener;
+
+        let path = std::env::temp_dir().join(format!("sw-presence-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).expect("binds a temporary socket");
+
+        let connection = Connection::connect(path.to_str().unwrap(), "12345678901234567")
+            .expect("dials the socket");
+        let (mut accepted, _) = listener.accept().expect("accepts the handshake");
+
+        let mut header = [0u8; 8];
+        accepted.read_exact(&mut header).unwrap();
+        assert_eq!(u32::from_le_bytes(header[..4].try_into().unwrap()), OP_HANDSHAKE);
+        let length = u32::from_le_bytes(header[4..].try_into().unwrap()) as usize;
+        let mut body = vec![0u8; length];
+        accepted.read_exact(&mut body).unwrap();
+        let hello: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(hello["v"], 1);
+        assert_eq!(hello["client_id"], "12345678901234567");
+
+        drop(connection);
+        let _ = std::fs::remove_file(&path);
     }
 }

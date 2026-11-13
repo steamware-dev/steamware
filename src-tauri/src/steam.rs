@@ -547,8 +547,35 @@ pub fn library(override_path: &str) -> Vec<InstalledGame> {
         }
     }
 
+    // One record per app. A stub in one library and Steam's own record in another are the same app, and
+    // listing both — or letting the empty one stand in for it — is how an installed game reads as missing.
+    let mut by_app: std::collections::HashMap<String, InstalledGame> = std::collections::HashMap::new();
+    for game in games {
+        let better = match by_app.get(&game.app_id) {
+            Some(kept) => record_rank(&game) > record_rank(kept),
+            None => true,
+        };
+        if better {
+            by_app.insert(game.app_id.clone(), game);
+        }
+    }
+    let mut games: Vec<InstalledGame> = by_app.into_values().collect();
     games.sort_by(|a, b| b.last_played.cmp(&a.last_played).then_with(|| a.name.cmp(&b.name)));
     games
+}
+
+/// Which of two records for one app to show: the installed one, then the one whose files are on disk, then
+/// the larger. The first field is the same bit Steam uses, so it always wins.
+fn record_rank(game: &InstalledGame) -> (bool, bool, u64) {
+    let folder = Path::new(&game.library)
+        .join("steamapps")
+        .join("common")
+        .join(&game.install_dir);
+    (
+        game.is_installed(),
+        !game.install_dir.is_empty() && folder.is_dir(),
+        game.size_on_disk,
+    )
 }
 
 pub fn status(override_path: &str) -> SteamStatus {
@@ -637,6 +664,12 @@ pub fn register_in_library(override_path: &str, app_id: &str, name: &str) -> boo
         .iter()
         .any(|library| library.join("steamapps").join(&file).is_file())
     {
+        // Steam already has a record for this app. A stub this build wrote earlier — into the root library,
+        // before Steam installed the game into another one — is a second record for one app, and Steam can
+        // read the empty one and offer Install for a game that is on disk. Ours is the record that goes.
+        let records = records_for_app(&root, app_id);
+        let refs: Vec<&ManifestRecord> = records.iter().collect();
+        drop_shadowed_stubs(&refs);
         return true;
     }
 
@@ -706,50 +739,150 @@ pub fn unregister_from_library(override_path: &str, app_id: &str) -> LibraryRemo
     outcome
 }
 
-/// Repair the library records earlier builds wrote as "update required".
-///
-/// Those records are still on disk for anyone upgrading, and Steam reads them the same way it read them when
-/// they were written: it queues the app and downloads it on the next start. Only a record with nothing behind
-/// it is touched — bytes on disk or a pending download mean Steam owns that state, not Steamware.
-///
-/// Returns how many records were repaired.
-pub fn heal_stub_flags(steam_path: &str) -> usize {
-    let Some(root) = detect_install(steam_path) else {
-        return 0;
-    };
-    let Ok(pattern) = regex::Regex::new(r#""StateFlags"(\s*)"2""#) else {
-        return 0;
-    };
-    let mut healed = 0;
-    for library in library_paths(&root) {
+/// One `appmanifest_*.acf`, kept with the file it came from so a stale record can be removed.
+struct ManifestRecord {
+    path: PathBuf,
+    game: InstalledGame,
+}
+
+impl ManifestRecord {
+    /// Steamware's own record: in the library, nothing downloaded, nothing queued.
+    ///
+    /// Earlier builds wrote `2`, this one writes `1`; both mean there is a tile and there are no bytes,
+    /// which is what makes the record safe to delete. Steam's record for a game it has is never this.
+    fn is_stub(&self) -> bool {
+        matches!(self.game.state_flags, 1 | 2) && self.game.size_on_disk == 0
+    }
+
+    fn is_installed(&self) -> bool {
+        self.game.is_installed()
+    }
+
+    /// Whether this record's own install folder is on disk and not empty.
+    ///
+    /// A record that says "nothing here" while the game's files sit in its folder is not ours to rewrite:
+    /// it may be a download Steam queued, or a record Steam has not refreshed yet.
+    fn has_files(&self) -> bool {
+        if self.game.install_dir.is_empty() {
+            return false;
+        }
+        let folder = Path::new(&self.game.library)
+            .join("steamapps")
+            .join("common")
+            .join(&self.game.install_dir);
+        std::fs::read_dir(folder)
+            .map(|mut entries| entries.next().is_some())
+            .unwrap_or(false)
+    }
+}
+
+fn read_record(path: PathBuf, library: &Path) -> Option<ManifestRecord> {
+    let text = std::fs::read_to_string(&path).ok()?;
+    parse_acf(&text, library).map(|game| ManifestRecord { path, game })
+}
+
+/// Every library record Steam has, across every library.
+fn manifest_records(root: &Path) -> Vec<ManifestRecord> {
+    let mut records = Vec::new();
+    for library in library_paths(root) {
         let apps = library.join("steamapps");
         let Ok(entries) = std::fs::read_dir(&apps) else {
             continue;
         };
         for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if !(name.starts_with("appmanifest_") && name.ends_with(".acf")) {
-                continue;
-            }
             let path = entry.path();
-            let Ok(text) = std::fs::read_to_string(&path) else {
-                continue;
-            };
-            let tokens = quoted_tokens(&text);
-            if field(&tokens, "StateFlags") != Some("2") {
-                continue;
-            }
-            let untouched = |key: &str| matches!(field(&tokens, key), None | Some("0"));
-            if !(untouched("SizeOnDisk") && untouched("BytesToDownload") && untouched("BytesDownloaded")) {
+            let is_manifest = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.starts_with("appmanifest_") && name.ends_with(".acf"))
+                .unwrap_or(false);
+            if !is_manifest {
                 continue;
             }
-            let fixed = pattern.replacen(&text, 1, "\"StateFlags\"${1}\"1\"");
-            if fixed.as_ref() != text && std::fs::write(&path, fixed.as_bytes()).is_ok() {
-                healed += 1;
+            if let Some(record) = read_record(path, &library) {
+                records.push(record);
             }
         }
     }
-    healed
+    records
+}
+
+/// Every record for one app, without reading the rest of either library.
+fn records_for_app(root: &Path, app_id: &str) -> Vec<ManifestRecord> {
+    let file = format!("appmanifest_{app_id}.acf");
+    let mut records = Vec::new();
+    for library in library_paths(root) {
+        if let Some(record) = read_record(library.join("steamapps").join(&file), &library) {
+            records.push(record);
+        }
+    }
+    records
+}
+
+/// Delete Steamware's stubs for one app while Steam has a real record for it.
+///
+/// Steam keeps one record per app. A stub written into the root library before Steam installed the game
+/// into another one is a second record for the same app, and Steam can pick the empty one and offer
+/// Install for a game that is on disk. The stub is the record this app wrote, so it is the one that goes;
+/// Steam's own record is never touched.
+fn drop_shadowed_stubs(records: &[&ManifestRecord]) -> usize {
+    if !records.iter().any(|record| record.is_installed()) {
+        return 0;
+    }
+    records
+        .iter()
+        .filter(|record| record.is_stub())
+        .filter(|record| std::fs::remove_file(&record.path).is_ok())
+        .count()
+}
+
+/// Repair the library records Steamware wrote, before Steam reads them.
+///
+/// Two jobs, both about a record that describes a game wrongly:
+///
+///   * A stub left behind for a game Steam has since installed elsewhere is a duplicate record, and Steam
+///     can read the empty one and offer Install for a game that is fully on disk. It is removed.
+///   * Older builds wrote their stubs as `2` (`StateUpdateRequired`), which Steam starts downloading on
+///     its next start. Those become `1` (`StateUninstalled`) only when nothing is behind them: no bytes
+///     recorded, and no game folder on disk.
+///
+/// Returns how many records were repaired.
+pub fn reconcile_library(steam_path: &str) -> usize {
+    let Some(root) = detect_install(steam_path) else {
+        return 0;
+    };
+    let records = manifest_records(&root);
+
+    let mut by_app: std::collections::HashMap<&str, Vec<&ManifestRecord>> = std::collections::HashMap::new();
+    for record in &records {
+        by_app.entry(record.game.app_id.as_str()).or_default().push(record);
+    }
+    let mut repaired: usize = by_app.values().map(|group| drop_shadowed_stubs(group)).sum();
+
+    let Ok(pattern) = regex::Regex::new(r#""StateFlags"(\s*)"2""#) else {
+        return repaired;
+    };
+    for record in &records {
+        if !record.path.is_file() || record.game.state_flags != 2 || record.has_files() {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&record.path) else {
+            continue;
+        };
+        let tokens = quoted_tokens(&text);
+        if field(&tokens, "StateFlags") != Some("2") {
+            continue;
+        }
+        let untouched = |key: &str| matches!(field(&tokens, key), None | Some("0"));
+        if !(untouched("SizeOnDisk") && untouched("BytesToDownload") && untouched("BytesDownloaded")) {
+            continue;
+        }
+        let fixed = pattern.replacen(&text, 1, "\"StateFlags\"${1}\"1\"");
+        if fixed.as_ref() != text && std::fs::write(&record.path, fixed.as_bytes()).is_ok() {
+            repaired += 1;
+        }
+    }
+    repaired
 }
 
 /// Where Steam keeps the manifest files the lua files pin to.
@@ -917,6 +1050,105 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    /// A second library, as `libraryfolders.vdf` lists one. Paths are escaped the way Valve's files are.
+    fn add_library(root: &Path, library: &Path) {
+        let escaped = library.to_string_lossy().replace('\\', "\\\\");
+        std::fs::write(
+            root.join("steamapps").join("libraryfolders.vdf"),
+            format!("\"libraryfolders\"\n{{\n \"1\"\n {{\n  \"path\"  \"{escaped}\"\n }}\n}}\n"),
+        )
+        .unwrap();
+    }
+
+    fn write_manifest(path: &Path, app_id: &str, flags: &str, size: &str, install_dir: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            format!(
+                "\"AppState\"\n{{\n\t\"appid\"\t\t\"{app_id}\"\n\t\"name\"\t\t\"Test game\"\n\t\"StateFlags\"\t\t\"{flags}\"\n\t\"installdir\"\t\t\"{install_dir}\"\n\t\"SizeOnDisk\"\t\t\"{size}\"\n}}\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    /// The reported bug: a game Steam installed into another library read as "install" after a restart,
+    /// because Steamware's empty stub in the root library was still a second record for the same app.
+    #[test]
+    fn a_stub_is_removed_once_steam_has_the_game_in_another_library() {
+        let root = std::env::temp_dir().join(format!("steamware-shadow-{}", rand::random::<u32>()));
+        let _ = std::fs::remove_dir_all(&root);
+        let other = std::env::temp_dir().join(format!("steamware-shadow-lib-{}", rand::random::<u32>()));
+        let _ = std::fs::remove_dir_all(&other);
+        std::fs::create_dir_all(root.join("steamapps")).unwrap();
+        std::fs::create_dir_all(other.join("steamapps")).unwrap();
+        add_library(&root, &other);
+
+        // What an add leaves behind: a library entry, nothing downloaded.
+        let stub = root.join("steamapps").join("appmanifest_2668510.acf");
+        write_manifest(&stub, "2668510", "1", "0", "Red Dead Redemption");
+        // Then Steam installs the game into the second library and keeps its own record there.
+        let real = other.join("steamapps").join("appmanifest_2668510.acf");
+        write_manifest(&real, "2668510", "4", "9000", "Red Dead Redemption");
+
+        assert_eq!(reconcile_library(&root.to_string_lossy()), 1);
+        assert!(!stub.exists(), "one app, one record: ours is the one that goes");
+        assert!(real.is_file(), "Steam's own record is never touched");
+
+        let games = library(&root.to_string_lossy());
+        assert_eq!(games.len(), 1, "the same app must not be listed twice");
+        assert!(games[0].is_installed(), "the installed record is the one shown");
+        assert_eq!(games[0].size_on_disk, 9000);
+        assert_eq!(reconcile_library(&root.to_string_lossy()), 0, "nothing left to repair");
+
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&other).ok();
+    }
+
+    #[test]
+    fn adding_a_game_again_clears_the_stub_it_left_in_the_other_library() {
+        let root = std::env::temp_dir().join(format!("steamware-shadow-add-{}", rand::random::<u32>()));
+        let _ = std::fs::remove_dir_all(&root);
+        let other = std::env::temp_dir().join(format!("steamware-shadow-add-lib-{}", rand::random::<u32>()));
+        let _ = std::fs::remove_dir_all(&other);
+        std::fs::create_dir_all(root.join("steamapps")).unwrap();
+        std::fs::create_dir_all(other.join("steamapps")).unwrap();
+        add_library(&root, &other);
+
+        let stub = root.join("steamapps").join("appmanifest_2668510.acf");
+        write_manifest(&stub, "2668510", "1", "0", "Red Dead Redemption");
+        let real = other.join("steamapps").join("appmanifest_2668510.acf");
+        write_manifest(&real, "2668510", "4", "9000", "Red Dead Redemption");
+
+        assert!(register_in_library(&root.to_string_lossy(), "2668510", "Red Dead Redemption"));
+        assert!(!stub.exists(), "the duplicate is gone as soon as the app is added again");
+        assert!(std::fs::read_to_string(&real).unwrap().contains("\"StateFlags\"\t\t\"4\""));
+
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&other).ok();
+    }
+
+    #[test]
+    fn a_record_for_a_game_on_disk_is_not_downgraded() {
+        let root = std::env::temp_dir().join(format!("steamware-heal-files-{}", rand::random::<u32>()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("steamapps").join("common").join("Test game")).unwrap();
+        std::fs::write(
+            root.join("steamapps").join("common").join("Test game").join("game.exe"),
+            b"MZ",
+        )
+        .unwrap();
+
+        // Flags say "not installed", but the game is on disk. Rewriting this to `1` is what would turn a
+        // downloaded game into an Install button, so the record is left exactly as Steam wrote it.
+        let manifest = root.join("steamapps").join("appmanifest_2668510.acf");
+        write_manifest(&manifest, "2668510", "2", "0", "Test game");
+
+        assert_eq!(reconcile_library(&root.to_string_lossy()), 0);
+        assert!(std::fs::read_to_string(&manifest).unwrap().contains("\"StateFlags\"\t\t\"2\""));
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     #[test]
     fn a_stub_written_as_update_required_is_repaired_once() {
         let root = std::env::temp_dir().join(format!("steamware-heal-{}", rand::random::<u32>()));
@@ -938,11 +1170,11 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(heal_stub_flags(&root.to_string_lossy()), 1);
+        assert_eq!(reconcile_library(&root.to_string_lossy()), 1);
         let healed = std::fs::read_to_string(&stub).unwrap();
         assert!(healed.contains("\"StateFlags\"\t\t\"1\""), "{healed}");
         assert!(std::fs::read_to_string(&real).unwrap().contains("\"StateFlags\"\t\t\"2\""));
-        assert_eq!(heal_stub_flags(&root.to_string_lossy()), 0, "already repaired");
+        assert_eq!(reconcile_library(&root.to_string_lossy()), 0, "already repaired");
 
         std::fs::remove_dir_all(&root).ok();
     }

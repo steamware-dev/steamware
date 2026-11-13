@@ -415,24 +415,17 @@ export function StoreTile({ item, onClick }: { item: StoreItem; onClick?: () => 
 
 export function FixCard({ game, onDownload }: { game: FixGame; onDownload: (game: FixGame) => void }) {
   const fix = game.fixes[0];
-  // Community fallback entries have a synthetic appid. Do not turn that into a broken Steam CDN URL.
-  const src = useCover(
-    game.capsuleImage || (/^\d+$/.test(game.appid) ? steamCapsule(game.appid) : null),
-  );
-  const source = game.source === "CrakFiles" ? "CrakFiles community" : game.source || "DepotBox";
+  const src = useCover(game.capsuleImage || steamCapsule(game.appid));
   const tags = Array.from(new Set(game.fixes.flatMap((entry) => entry.tags.map((tag) => tag.toLowerCase()))));
 
   return (
     <article className="fix-card">
       <div className="art">
-        {src ? <img src={src} alt="" loading="lazy" /> : <div className="fix-art-empty">{game.name.slice(0, 28)}</div>}
+        {src ? <img src={src} alt="" loading="lazy" /> : null}
       </div>
       <div className="content">
         <div className="name" title={game.name}>
           {game.name}
-        </div>
-        <div className="fix-source" title="Source of this fix catalog entry">
-          {source}
         </div>
         <div className="tags">
           {tags.slice(0, 3).map((tag) => (
@@ -795,8 +788,8 @@ export function UpdateGate({
         <h1 id="update-title">Update to v{status.latest} to continue</h1>
         <p className="update-lede">
           This copy is v{status.current}. Steamware only runs on the newest release, so this window stays shut
-          until the update is installed. It takes a few seconds and keeps your settings, library and
-          downloads.
+          until the update is installed. The installer opens as soon as Steamware closes and keeps your
+          settings, library and downloads.
         </p>
 
         <div className="update-versions">
@@ -824,7 +817,7 @@ export function UpdateGate({
                 : "Starting the download…"}
             </span>
             <span className="section-note">
-              Steamware closes itself and opens again once the new version is installed.
+              Steamware closes itself so the installer can replace it. Finish the installer to update.
             </span>
           </div>
         ) : (
@@ -850,11 +843,12 @@ export function UpdateGate({
               // The gate must never be a dead end: if Windows blocks the in-app install (antivirus, a
               // policy, a locked temp folder), the release page is still one click away.
               <p className="update-footnote">
-                If the update does not start, {" "}
+                If the installer does not open, {" "}
                 <button className="linkish" onClick={openRelease}>
-                  download the installer from GitHub
+                  download it from GitHub
                 </button>
-                .
+                . Portable copies can keep using their current folder until the installer finishes; delete
+                the old folder afterwards if you switch to the installed copy.
               </p>
             ) : (
               <p className="update-footnote">

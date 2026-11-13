@@ -41,6 +41,12 @@ struct AddState {
     game_unavailable: bool,
 }
 
+/// An add is in flight while either half of it is: the availability/source check before the queue starts,
+/// or the archive download itself. A finished, failed or cancelled add is not in flight and can be retried.
+fn add_in_progress(state: &AddState) -> bool {
+    state.checking || state.downloading
+}
+
 struct Inner {
     app: AppHandle,
     api: Arc<ApiClient>,
@@ -331,23 +337,9 @@ impl Inner {
     }
 
     fn add(self: &Arc<Self>, app_id: &str, body: &str) -> (u16, String) {
-        if !app_id.chars().all(|c| c.is_ascii_digit()) || app_id.is_empty() || app_id.len() > 10 {
-            return (400, json!({ "success": false, "error": "Invalid app id" }).to_string());
-        }
         let name = string_field(&body_json(body), "name");
         let title = if name.is_empty() { format!("App {app_id}") } else { name };
-        let state = AddState {
-            title: title.clone(),
-            checking: true,
-            ..AddState::default()
-        };
-        if let Ok(mut map) = self.adds.lock() {
-            map.insert(app_id.to_string(), state);
-        }
-        let inner = Arc::clone(self);
-        let id = app_id.to_string();
-        tauri::async_runtime::spawn(async move { run_add(inner, id, title).await });
-        (200, json!({ "success": true }).to_string())
+        self.start_add(app_id, title)
     }
 
     fn add_source(self: &Arc<Self>, app_id: &str, body: &str) -> (u16, String) {
@@ -355,24 +347,52 @@ impl Inner {
         if !source.is_empty() && !source.eq_ignore_ascii_case("depotbox") {
             return (400, json!({ "success": false, "error": format!("Unknown source '{source}'") }).to_string());
         }
-        let (busy, title) = self
+        let title = self
             .adds
             .lock()
             .ok()
-            .and_then(|map| map.get(app_id).map(|state| (state.downloading, state.title.clone())))
-            .unwrap_or((false, format!("App {app_id}")));
-        if busy {
-            return (200, json!({ "success": true }).to_string());
+            .and_then(|map| map.get(app_id).map(|state| state.title.clone()))
+            .unwrap_or_else(|| format!("App {app_id}"));
+        self.start_add(app_id, title)
+    }
+
+    /// The single entry point for an add, whichever button asked for it.
+    ///
+    /// `add` and `add-source` used to race: `add` always replaced the state and spawned a fetch, and
+    /// `add-source` only checked `downloading`, so a second request during the availability check started a
+    /// second full archive fetch for the same game. DepotBox expands that game's DLCs when it builds the
+    /// archive, so each duplicate add regenerated the DLC bundle. One state record and one queue job are the
+    /// right units of work; both are reserved atomically here.
+    fn start_add(self: &Arc<Self>, app_id: &str, title: String) -> (u16, String) {
+        if !app_id.chars().all(|c| c.is_ascii_digit()) || app_id.is_empty() || app_id.len() > 10 {
+            return (400, json!({ "success": false, "error": "Invalid app id" }).to_string());
         }
-        if let Ok(mut map) = self.adds.lock() {
-            if let Some(state) = map.get_mut(app_id) {
-                state.error = None;
-                state.game_unavailable = false;
-                state.install_status = None;
-                state.checking = true;
-                state.sources_loaded = false;
+
+        let settings = self.settings_snapshot();
+        if lua::installed_lua(&settings.steam_path, app_id).is_some() {
+            return (
+                200,
+                json!({ "success": true, "alreadyInstalled": true }).to_string(),
+            );
+        }
+        if self.downloads.active_manifest(app_id).is_some() {
+            return (200, json!({ "success": true, "alreadyRunning": true }).to_string());
+        }
+
+        let Ok(mut map) = self.adds.lock() else {
+            return (500, json!({ "success": false, "error": "Add state unavailable" }).to_string());
+        };
+        if let Some(state) = map.get(app_id) {
+            if add_in_progress(state) {
+                return (200, json!({ "success": true, "alreadyRunning": true }).to_string());
             }
         }
+        map.insert(
+            app_id.to_string(),
+            AddState { title: title.clone(), checking: true, ..AddState::default() },
+        );
+        drop(map);
+
         let inner = Arc::clone(self);
         let id = app_id.to_string();
         tauri::async_runtime::spawn(async move { run_add(inner, id, title).await });
@@ -878,5 +898,18 @@ mod tests {
         assert!(!id_segment(r"..\..\evil"));
         assert!(!id_segment("730%2F.."));
         assert!(!id_segment("12345678901"));
+    }
+
+    #[test]
+    fn only_a_checking_or_downloading_add_blocks_a_retry() {
+        let checking = AddState { checking: true, ..AddState::default() };
+        let downloading = AddState { downloading: true, ..AddState::default() };
+        let failed = AddState { error: Some("offline".to_string()), ..AddState::default() };
+        let done = AddState { installed: true, ..AddState::default() };
+
+        assert!(add_in_progress(&checking));
+        assert!(add_in_progress(&downloading));
+        assert!(!add_in_progress(&failed));
+        assert!(!add_in_progress(&done));
     }
 }

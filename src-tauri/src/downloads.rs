@@ -72,6 +72,10 @@ pub struct NewDownload {
     pub unpin: bool,
 }
 
+/// One permit budget shared between jobs. Twelve divides by 1, 2, 3 and 4 exactly, so the setting is the
+/// number of downloads that actually run — a four-slot budget made "3 at a time" run four.
+const SLOTS: usize = 12;
+
 /// The download queue.
 ///
 /// Files are streamed straight to disk by the Rust side, not fetched into memory by the webview: a manifest
@@ -92,14 +96,15 @@ impl Downloads {
         Self {
             items: Arc::new(Mutex::new(Vec::new())),
             cancels: Arc::new(Mutex::new(HashMap::new())),
-            slots: Arc::new(Semaphore::new(4)),
+            slots: Arc::new(Semaphore::new(SLOTS)),
             permits_per_job: Arc::new(Mutex::new(Self::permits_for(max_concurrent))),
         }
     }
 
-    /// A 4-slot semaphore divided into equal shares preserves the requested concurrency for 1–4.
+    /// Equal shares of the permit budget preserve the requested concurrency for 1–4: 12/1, 12/2, 12/3 and
+    /// 12/4 all divide exactly, so each job's share multiplies back to the whole budget.
     fn permits_for(max_concurrent: u8) -> usize {
-        (4usize / max_concurrent.clamp(1, 4) as usize).max(1)
+        (SLOTS / max_concurrent.clamp(1, 4) as usize).max(1)
     }
 
     pub fn set_concurrency(&self, max_concurrent: u8) {
@@ -119,6 +124,19 @@ impl Downloads {
             .unwrap_or_default()
     }
 
+    /// The manifest job already running for this app, if there is one.
+    ///
+    /// The Add button, the plugin's source picker and the app's Update button all feed into the same queue.
+    /// Without this, each one could start its own fetch of the same archive, and DepotBox would rebuild the
+    /// game's DLC bundle once per fetch. A finished, failed or cancelled job is not active, so retrying after
+    /// an error still works.
+    pub(crate) fn active_manifest(&self, app_id: &str) -> Option<DownloadItem> {
+        self.items
+            .lock()
+            .ok()
+            .and_then(|items| active_manifest_in(&items, app_id))
+    }
+
     pub fn cancel(&self, id: &str) {
         if let Ok(cancels) = self.cancels.lock() {
             if let Some(token) = cancels.get(id) {
@@ -133,6 +151,18 @@ impl Downloads {
         api: Arc<ApiClient>,
         job: NewDownload,
     ) -> AppResult<DownloadItem> {
+        // Check and reserve under the same lock. Two callers that both looked before either inserted would
+        // otherwise both start, which is exactly the duplicate-add case this guards against.
+        let mut items = self
+            .items
+            .lock()
+            .map_err(|_| AppError::new("state", "Download list unavailable."))?;
+        if job.kind == "manifest" {
+            if let Some(existing) = active_manifest_in(&items, &job.app_id) {
+                return Ok(existing);
+            }
+        }
+
         let id = format!("{:016x}", rand::random::<u64>());
         let item = DownloadItem {
             id: id.clone(),
@@ -153,7 +183,8 @@ impl Downloads {
             install_library: false,
         };
 
-        self.items.lock().map_err(|_| AppError::new("state", "Download list unavailable."))?.push(item.clone());
+        items.push(item.clone());
+        drop(items);
 
         let token = CancellationToken::new();
         self.cancels
@@ -246,6 +277,17 @@ impl Downloads {
 
         Ok(item)
     }
+}
+
+fn active_manifest_in(items: &[DownloadItem], app_id: &str) -> Option<DownloadItem> {
+    items
+        .iter()
+        .find(|item| {
+            item.kind == "manifest"
+                && item.app_id == app_id
+                && matches!(item.status.as_str(), "queued" | "downloading")
+        })
+        .cloned()
 }
 
 fn set_status(items: &Arc<Mutex<Vec<DownloadItem>>>, id: &str, status: &str) -> Option<DownloadItem> {
@@ -441,4 +483,61 @@ async fn run(
     drop(file);
     tokio::fs::rename(&part, &dest).await?;
     Ok(dest)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{active_manifest_in, DownloadItem, Downloads, SLOTS};
+
+    fn item(app_id: &str, kind: &str, status: &str) -> DownloadItem {
+        DownloadItem {
+            id: format!("{app_id}-{status}"),
+            app_id: app_id.to_string(),
+            title: format!("App {app_id}"),
+            kind: kind.to_string(),
+            status: status.to_string(),
+            received: 0,
+            total: 0,
+            file_name: format!("{app_id}.zip"),
+            path: String::new(),
+            error: None,
+            started_at: 0,
+            installed_lua: 0,
+            installed_manifests: 0,
+            install_error: None,
+            install_live: false,
+            install_library: false,
+        }
+    }
+
+    #[test]
+    fn only_an_active_manifest_for_the_same_app_is_deduplicated() {
+        let items = vec![
+            item("730", "manifest", "done"),
+            item("440", "manifest", "queued"),
+            item("570", "fix", "downloading"),
+        ];
+
+        assert!(active_manifest_in(&items, "730").is_none());
+        assert_eq!(active_manifest_in(&items, "440").unwrap().id, "440-queued");
+        assert!(active_manifest_in(&items, "570").is_none());
+        assert!(active_manifest_in(&items, "999").is_none());
+    }
+
+    #[test]
+    fn a_cancelled_or_failed_job_does_not_block_a_retry() {
+        let items = vec![item("730", "manifest", "cancelled"), item("730", "manifest", "failed")];
+        assert!(active_manifest_in(&items, "730").is_none());
+    }
+
+    #[test]
+    fn every_concurrency_setting_runs_exactly_that_many_downloads() {
+        for setting in 1u8..=4 {
+            assert_eq!(
+                Downloads::permits_for(setting) * usize::from(setting),
+                SLOTS,
+                "{setting} at a time must fill the budget exactly"
+            );
+        }
+    }
 }

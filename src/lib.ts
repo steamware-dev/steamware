@@ -182,8 +182,6 @@ export interface FixGame {
   name: string;
   headerImage: string | null;
   capsuleImage: string | null;
-  /** The provider that supplied this entry; community fallback entries are labeled in the UI. */
-  source?: string;
   fixes: FixEntry[];
 }
 
@@ -191,8 +189,6 @@ export interface FixCatalog {
   ok: boolean;
   count: number;
   availableTags: string[];
-  /** Present when the server used a community fallback catalog. */
-  source?: string;
   games: FixGame[];
 }
 
@@ -265,6 +261,8 @@ export interface ModeCard {
   recommended: boolean;
   experimental: boolean;
   managed: boolean;
+  /** False on macOS and Linux, where the Windows loader cannot be installed. */
+  supported: boolean;
 }
 
 export interface CloudState {

@@ -235,22 +235,6 @@ fn unix_marker_target() -> PathBuf {
     std::env::temp_dir().join("steamware-cdp-marker")
 }
 
-/// The unix marker is a symlink rather than a junction. A plain file is still avoided: Steam's own cleanup
-/// deletes plain files of this name, which is exactly why the Windows build uses a directory link.
-#[cfg(not(windows))]
-pub(crate) fn ensure_cdp_marker(steam_root: &Path) -> bool {
-    use std::os::unix::fs::symlink;
-
-    let marker = steam_root.join(CDP_MARKER);
-    // A marker somebody else made (Millennium keeps its own) is left alone.
-    if std::fs::symlink_metadata(&marker).is_ok() {
-        return true;
-    }
-    let target = unix_marker_target();
-    let _ = std::fs::create_dir_all(&target);
-    symlink(&target, &marker).is_ok()
-}
-
 /// Removes the marker, but only when it is the junction this app made.
 ///
 /// Called by uninstall, never on quit. The marker has to be present *before* Steam boots, because that is the
@@ -281,19 +265,28 @@ fn release_cdp_marker(steam_root: &Path) {
 
 /// Recreates the marker at launch when the plugin is installed, because quitting removed it.
 ///
-/// Without this the marker would only ever exist right after an install, and a Steam that starts later would
-/// come up with no port for the injector to find.
+/// The in-Steam plugin is Windows-only: there is no loader DLL for macOS or Linux, so those platforms must
+/// not opt Steam into remote debugging at all. Older builds created the marker on Unix, and a stale marker
+/// is removed here even if the old frontend bundle is still on disk.
 pub(crate) fn ensure_marker_if_installed(steam_path: &str) {
     let Some(root) = steam::detect_install(steam_path) else {
         return;
     };
-    if manifest_path().is_file() {
-        if !ensure_cdp_marker(&root) {
-            crate::local_api::log_line("could not create the CEF marker in Steam's root; the plugin cannot load");
+    #[cfg(windows)]
+    {
+        if manifest_path().is_file() {
+            if !ensure_cdp_marker(&root) {
+                crate::local_api::log_line("could not create the CEF marker in Steam's root; the plugin cannot load");
+            }
+        } else {
+            // A crash or a forced kill skips the exit hook, so a marker from a previous run can still be here
+            // after the plugin was uninstalled. Nothing needs the port without the plugin: drop it if it is ours.
+            release_cdp_marker(&root);
         }
-    } else {
-        // A crash or a forced kill skips the exit hook, so a marker from a previous run can still be here
-        // after the plugin was uninstalled. Nothing needs the port without the plugin: drop it if it is ours.
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = steam_path;
         release_cdp_marker(&root);
     }
 }
@@ -410,10 +403,9 @@ pub async fn state(api: &ApiClient, steam_path: &str) -> PluginState {
         _ => (false, false),
     };
 
-    // The loader DLL is Windows' way of getting the bundle into Steam's CEF. On unix the frontend is the
-    // whole install, injected through Steam's debugging port, so a missing DLL there must not report the
-    // plugin as absent.
-    let installed = frontend && (loader || !cfg!(windows));
+    // The loader DLL is the only way to get the bundle into Steam's CEF. The plugin is Windows-only;
+    // macOS and Linux must never be reported as carrying it, even if an older build left files behind.
+    let installed = cfg!(windows) && frontend && loader;
     let update_available = installed
         && latest
             .as_deref()
@@ -428,7 +420,9 @@ pub async fn state(api: &ApiClient, steam_path: &str) -> PluginState {
 
     // Two different silences: unverified is not a failure, so it names what would fix it instead of blaming
     // the network. Anything else really is the feed being unreachable.
-    let status = if restart_required {
+    let status = if !cfg!(windows) {
+        Some("The in-Steam plugin is Windows-only.".to_string())
+    } else if restart_required {
         Some("Steam is running without its plugin port. Restart Steam once and store pages will load the plugin.".to_string())
     } else {
         match (&release, &release_result) {
@@ -476,6 +470,22 @@ async fn cdp_port_open() -> bool {
 /* ── Install / uninstall ──────────────────────────────────────────────────────────────────── */
 
 pub async fn install(api: &ApiClient, app: &AppHandle, steam_path: &str) -> AppResult<PluginState> {
+    #[cfg(windows)]
+    {
+        install_windows(api, app, steam_path).await
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (api, app, steam_path);
+        Err(AppError::new(
+            "unsupported_platform",
+            "The in-Steam plugin is Windows-only.",
+        ))
+    }
+}
+
+#[cfg(windows)]
+async fn install_windows(api: &ApiClient, app: &AppHandle, steam_path: &str) -> AppResult<PluginState> {
     let root = steam::detect_install(steam_path).ok_or_else(|| {
         AppError::new("steam_missing", "Steam was not found. Set its folder in Settings, then try again.")
     })?;
@@ -515,6 +525,7 @@ pub async fn install(api: &ApiClient, app: &AppHandle, steam_path: &str) -> AppR
     Ok(state(api, steam_path).await)
 }
 
+#[cfg(windows)]
 async fn install_inner(
     api: &ApiClient,
     app: &AppHandle,
@@ -618,16 +629,39 @@ async fn install_inner(
 }
 
 pub fn uninstall(steam_path: &str) -> AppResult<()> {
+    let manifest = read_manifest();
     if let Some(root) = steam::detect_install(steam_path) {
-        let was_running = steam::is_running();
-        if was_running {
-            steam::stop(20);
+        // The loader is the only file this app puts in Steam's root, and `winmm.dll` is also the name other
+        // loaders (Millennium, LTSP itself) install there. Deleting whatever is at that name breaks their
+        // install, not just this one, so the copy is removed only when its hash is the one this app wrote.
+        #[cfg(windows)]
+        {
+            let loader = root.join(DLL_ASSET);
+            let ours = match (manifest.dll_sha.as_deref(), sha256_file(&loader)) {
+                (Some(expected), Some(actual)) => expected == actual,
+                _ => false,
+            };
+            if ours {
+                let was_running = steam::is_running();
+                if was_running {
+                    steam::stop(20);
+                }
+                let _ = std::fs::remove_file(&loader);
+                let _ = std::fs::remove_file(root.join(DLL_REAL));
+                release_cdp_marker(&root);
+                if was_running {
+                    let _ = steam::start(&root);
+                }
+            } else {
+                release_cdp_marker(&root);
+            }
         }
-        let _ = std::fs::remove_file(root.join(DLL_ASSET));
-        let _ = std::fs::remove_file(root.join(DLL_REAL));
-        release_cdp_marker(&root);
-        if was_running {
-            let _ = steam::start(&root);
+        // On unix the bundle is the whole install: no loader exists and nothing is written into Steam's
+        // root, so Steam must not be stopped and restarted to remove files that were never there.
+        #[cfg(not(windows))]
+        {
+            let _ = &manifest;
+            release_cdp_marker(&root);
         }
     }
     if frontend_dir().exists() {

@@ -5,6 +5,7 @@ import { PageHead, SectionHead } from "./components";
 import type { PageApi } from "./pages";
 
 function actionLabel(card: ModeCard): string | null {
+  if (!card.supported) return null;
   if (!card.managed) return card.active ? null : "Switch to this";
   if (!card.active) return "Switch to this";
   if (!card.installed) return "Install";

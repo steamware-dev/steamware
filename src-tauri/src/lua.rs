@@ -135,6 +135,16 @@ pub fn install_archive(archive: &str, steam_path: &str, unpin_luas: bool) -> App
         return Err(AppError::new("steam_missing", "Steam was not found."));
     };
 
+    // A fresh Steam install has `config` but not `stplug-in`: the folder belongs to whichever unlocker reads
+    // it, so nothing creates it up front. Every lua write then failed into the "archive had no lua" error,
+    // even though the archive carried one. Making the folder is part of installing a lua.
+    if std::fs::create_dir_all(&plugin_dir).is_err() {
+        return Err(AppError::new(
+            "write_failed",
+            "Could not create Steam's plugin folder, so nothing was installed.",
+        ));
+    }
+
     let file = std::fs::File::open(archive)?;
     let mut zip = zip::ZipArchive::new(file)
         .map_err(|_| AppError::new("bad_archive", "That download is not a readable archive."))?;
@@ -313,6 +323,21 @@ mod tests {
             writer.write_all(bytes).unwrap();
         }
         writer.finish().unwrap();
+    }
+
+    #[test]
+    fn a_fresh_steam_root_gets_the_plugin_folder() {
+        let root = fake_steam("fresh");
+        // As Steam leaves it on a machine that never ran an unlocker: no `config/stplug-in` at all.
+        std::fs::remove_dir_all(root.join("config").join("stplug-in")).unwrap();
+        let archive = root.join("download.zip");
+        zip_with(&archive, &[("386940.lua", b"addappid(386940)\n")]);
+
+        let summary = install_archive(&archive.to_string_lossy(), &root.to_string_lossy(), false).unwrap();
+
+        assert_eq!(summary.lua, 1, "the lua has to land even when the folder did not exist yet");
+        assert!(root.join("config").join("stplug-in").join("386940.lua").is_file());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

@@ -1,0 +1,116 @@
+name: Rust tests
+
+# The release workflow only builds: a compile error on Linux or macOS is caught when a tag is pushed, and a
+# failing test is caught by nobody. This runs the suite on the platforms whose paths and process handling
+# differ from the Windows machine the app is developed on — Linux, where Steam lives under $HOME, and both
+# macOS architectures the release ships.
+#
+# The frontend is built before cargo runs. `tauri::generate_context!` embeds `dist/` at compile time, so even
+# `cargo test` does not compile until `npm run build` has produced it.
+
+on:
+  # Every branch: the app is developed on release branches, and `main` holds only the README.
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # A filesystem assertion is useless without the call site that produced it.
+  RUST_BACKTRACE: 1
+
+jobs:
+  linux:
+    name: Linux x86_64
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tauri's system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Build the frontend the app embeds
+        run: npm run build
+
+      - name: Run the Rust test suite
+        run: |
+          cargo test \
+            --manifest-path src-tauri/Cargo.toml \
+            --locked \
+            --all-targets \
+            --no-fail-fast
+
+  macos:
+    name: macOS (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The two runners the release workflow uses, so a test that passes here is a test that passes on
+          # the architecture whose .dmg is actually shipped.
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            arch: intel
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            arch: apple-silicon
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.target }}
+
+      - run: npm ci
+
+      - name: Build the frontend the app embeds
+        run: npm run build
+
+      - name: Run the Rust test suite
+        run: |
+          cargo test \
+            --manifest-path src-tauri/Cargo.toml \
+            --locked \
+            --target ${{ matrix.target }} \
+            --all-targets \
+            --no-fail-fast

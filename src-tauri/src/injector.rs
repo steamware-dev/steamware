@@ -169,6 +169,14 @@ impl Frontend {
 /// `settings` is the live profile, not a copy: the accent can change while the app is open, and every pass
 /// re-derives the palette from it, so the next repaint already carries the new colours.
 pub fn start(token: String, settings: Arc<Mutex<Settings>>) {
+    #[cfg(not(windows))]
+    {
+        let _ = (token, settings);
+        crate::local_api::log_line(
+            "CEF injector disabled: the in-Steam plugin is Windows-only",
+        );
+    }
+    #[cfg(windows)]
     tauri::async_runtime::spawn(async move {
         crate::local_api::log_line("CEF injector started");
         let mut headers = reqwest::header::HeaderMap::new();

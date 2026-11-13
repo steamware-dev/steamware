@@ -144,6 +144,36 @@ jobs:
           # The image itself, not just its presence: a truncated .dmg fails here.
           hdiutil verify "$dmg"
 
+          # Without a signature, Gatekeeper tells testers the downloaded app is "damaged" instead
+          # of offering the normal Open Anyway flow. Tauri's signingIdentity "-" makes an ad-hoc
+          # signature, and these checks assert it really landed on the bundle and in the image.
+          signature="$(codesign -dv --verbose=4 "$app" 2>&1)"
+          echo "$signature"
+          if ! grep -qi 'adhoc' <<<"$signature"; then
+            echo "::error::$app is not ad-hoc signed"
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "$app"
+
+          mountpoint="$(mktemp -d)"
+          detach() { hdiutil detach "$mountpoint" -quiet || true; }
+          trap detach EXIT
+          hdiutil attach "$dmg" -mountpoint "$mountpoint" -nobrowse -readonly -quiet
+          inner_app="$(find "$mountpoint" -maxdepth 1 -name '*.app' -print -quit)"
+          if [ -z "$inner_app" ]; then
+            echo "::error::no .app inside $dmg"
+            exit 1
+          fi
+          inner_signature="$(codesign -dv --verbose=4 "$inner_app" 2>&1)"
+          echo "$inner_signature"
+          if ! grep -qi 'adhoc' <<<"$inner_signature"; then
+            echo "::error::$inner_app inside the .dmg is not ad-hoc signed"
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "$inner_app"
+          hdiutil detach "$mountpoint" -quiet
+          trap - EXIT
+
       - name: Checksums
         run: |
           cd "src-tauri/target/${{ matrix.target }}/release/bundle/dmg"

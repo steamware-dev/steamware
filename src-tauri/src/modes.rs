@@ -61,6 +61,22 @@ fn def(id: &str) -> Option<ModeDef> {
     defs().into_iter().find(|entry| entry.id == id)
 }
 
+/// The loader is three Windows DLLs written into Steam's root. A Linux or macOS Steam has no such loader, so
+/// an "install" there would copy Windows binaries into its folder and report success.
+fn windows_only() -> AppResult<()> {
+    #[cfg(windows)]
+    {
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        Err(AppError::new(
+            "unsupported_platform",
+            "That unlocker is a Windows loader. On this platform, use lua files and the store plugin instead.",
+        ))
+    }
+}
+
 /* ── Persisted selection ─────────────────────────────────────────────────────────────────────── */
 
 #[derive(Default, Serialize, Deserialize)]
@@ -121,6 +137,8 @@ pub struct ModeCard {
     pub recommended: bool,
     pub experimental: bool,
     pub managed: bool,
+    /// The loader can be installed on this platform; false on macOS and Linux.
+    pub supported: bool,
 }
 
 #[derive(Serialize)]
@@ -453,7 +471,10 @@ pub async fn state(api: &ApiClient, steam_path: &str) -> ModesState {
             && installed
             && matches!((&latest, &version), (Some(latest), Some(current)) if latest != current);
 
-        let status = if active {
+        let supported = cfg!(windows);
+        let status = if !supported {
+            "Windows only. Nothing is written on this platform.".to_string()
+        } else if active {
             if installed {
                 if update_available {
                     "An update is available.".to_string()
@@ -482,6 +503,7 @@ pub async fn state(api: &ApiClient, steam_path: &str) -> ModesState {
             recommended: def.id == "bst",
             experimental: def.id == "ost",
             managed: true,
+            supported,
         });
     }
 
@@ -499,6 +521,7 @@ pub async fn state(api: &ApiClient, steam_path: &str) -> ModesState {
         recommended: false,
         experimental: false,
         managed: false,
+        supported: true,
     });
 
     // Quiet like `latest_version`: this is a status read on page mount, so an unverified app shows the mode
@@ -540,6 +563,8 @@ pub async fn install(
         save_store(&store)?;
         return Ok(state(api, steam_path).await);
     }
+
+    windows_only()?;
 
     let def = def(mode_id)
         .ok_or_else(|| AppError::new("unknown_mode", "That mode does not exist."))?;
@@ -701,6 +726,8 @@ pub async fn cloud_redirect_set(
     enable: bool,
     force_update: bool,
 ) -> AppResult<ModesState> {
+    windows_only()?;
+
     let root = steam::detect_install(steam_path).ok_or_else(|| {
         AppError::new("steam_missing", "Steam was not found. Set its folder in Settings, then try again.")
     })?;

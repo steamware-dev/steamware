@@ -157,7 +157,9 @@ impl Updater {
                 .map(|release| release.version.clone())
                 .unwrap_or_else(|| current.clone()),
             required,
-            can_install: required && !setup_url.is_empty() && installed_by_setup(),
+            // Any Windows copy can update from here. The installer is opened visibly rather than forced
+            // over the current folder, so a portable build is not silently replaced by a second install.
+            can_install: required && !setup_url.is_empty() && cfg!(windows),
             release_url: release.as_ref().map(|release| release.page.clone()).unwrap_or_default(),
             notes: release
                 .as_ref()
@@ -220,61 +222,11 @@ impl Updater {
                 "This release has no installer attached. Download it from the release page.",
             ));
         };
-        if !installed_by_setup() {
-            return Err(AppError::new(
-                "manual_update",
-                "This copy was not installed by the Steamware installer, so the update has to be downloaded by hand.",
-            ));
-        }
-
         let installer = download(app, &setup).await?;
-        let exe = std::env::current_exe().map_err(|_| {
-            AppError::new("io_error", "Steamware could not find its own program file.")
-        })?;
-        relaunch_after_exit(&installer, &exe)?;
+        launch_installer_after_exit(&installer)?;
         app.exit(0);
         Ok(())
     }
-}
-
-/// True when this copy lives where the installer puts it — `%LOCALAPPDATA%\Steamware` for the usual
-/// per-user install, `%ProgramFiles%\Steamware` for a machine-wide one.
-///
-/// A copy unzipped from the standalone build has no installer behind it, and running a setup over it would
-/// leave two installs and an old exe the user keeps double-clicking. That copy gets the release page instead.
-fn installed_by_setup() -> bool {
-    let Ok(exe) = std::env::current_exe() else {
-        return false;
-    };
-    let roots: Vec<String> = ["LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)"]
-        .iter()
-        .filter_map(|name| std::env::var(name).ok())
-        .filter(|root| !root.is_empty())
-        .collect();
-    installed_in(&roots, &exe)
-}
-
-/// The rule itself, with the environment passed in so it can be tested.
-///
-/// Both halves matter: a folder *named* `Steamware` directly under an install root is the installer's own
-/// layout, while `…\Downloads\Steamware\steamware.exe` is somebody's unzipped copy that must not be
-/// overwritten by a silent installer.
-fn installed_in(roots: &[String], exe: &Path) -> bool {
-    let Some(dir) = exe.parent() else {
-        return false;
-    };
-    let named = dir
-        .file_name()
-        .and_then(|name| name.to_str())
-        .map(|name| name.eq_ignore_ascii_case("Steamware"))
-        .unwrap_or(false);
-    if !named {
-        return false;
-    }
-    let target = dir.to_string_lossy().to_lowercase();
-    roots
-        .iter()
-        .any(|root| !root.is_empty() && target.starts_with(&root.to_lowercase()))
 }
 
 /// A Windows program begins with `MZ`. Anything else is an error page saved under an `.exe` name.
@@ -435,13 +387,14 @@ fn ps_quote(value: &str) -> String {
     value.replace('\'', "''")
 }
 
-/// Start the installer once this process has ended, then open the app again.
+/// Open the installer once this process has ended.
 ///
 /// A detached shell is the only reliable way to do this: the installer must not be extracting while the exe
-/// it replaces is still mapped, and the app must not stay running while it waits. `-Wait` means the relaunch
-/// happens after the upgrade, not before it.
+/// it replaces is still mapped, and the app must not stay running while it waits. The installer is shown
+/// rather than run silently: a portable copy has no uninstall entry for NSIS to find, and a silent setup
+/// would either install a second copy or fail without saying so.
 #[cfg(windows)]
-fn relaunch_after_exit(installer: &Path, exe: &Path) -> AppResult<()> {
+fn launch_installer_after_exit(installer: &Path) -> AppResult<()> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     const DETACHED_PROCESS: u32 = 0x0000_0008;
@@ -450,11 +403,9 @@ fn relaunch_after_exit(installer: &Path, exe: &Path) -> AppResult<()> {
         "$ErrorActionPreference = 'SilentlyContinue'; \
          Wait-Process -Id {pid} -ErrorAction SilentlyContinue; \
          Start-Sleep -Milliseconds 700; \
-         Start-Process -FilePath '{installer}' -ArgumentList '/S' -Wait; \
-         Start-Process -FilePath '{exe}'",
+         Start-Process -FilePath '{installer}'",
         pid = std::process::id(),
         installer = ps_quote(&installer.to_string_lossy()),
-        exe = ps_quote(&exe.to_string_lossy()),
     );
     std::process::Command::new("powershell")
         .args([
@@ -478,7 +429,7 @@ fn relaunch_after_exit(installer: &Path, exe: &Path) -> AppResult<()> {
 }
 
 #[cfg(not(windows))]
-fn relaunch_after_exit(_installer: &Path, _exe: &Path) -> AppResult<()> {
+fn launch_installer_after_exit(_installer: &Path) -> AppResult<()> {
     Err(AppError::new(
         "update_launch_failed",
         "In-app updates are Windows-only. Download the new version from the release page.",
@@ -547,32 +498,6 @@ mod tests {
         )
         .unwrap();
         assert!(parse_release(&only_standalones).unwrap().setup.is_none());
-    }
-
-    #[test]
-    fn only_a_real_install_is_updated_in_place() {
-        let roots = vec![
-            "C:\\Users\\me\\AppData\\Local".to_string(),
-            "C:\\Program Files".to_string(),
-        ];
-        assert!(installed_in(
-            &roots,
-            Path::new("C:\\Users\\me\\AppData\\Local\\Steamware\\steamware.exe")
-        ));
-        assert!(installed_in(
-            &roots,
-            Path::new("C:\\Program Files\\Steamware\\steamware.exe")
-        ));
-        // An unzipped copy: same folder name, wrong place, and no installer behind it.
-        assert!(!installed_in(&roots, Path::new("D:\\Games\\Steamware\\steamware.exe")));
-        assert!(!installed_in(
-            &roots,
-            Path::new("C:\\Users\\me\\Downloads\\Steamware\\steamware.exe")
-        ));
-        assert!(!installed_in(
-            &roots,
-            Path::new("C:\\Users\\me\\AppData\\Local\\Steamware\\old\\steamware.exe")
-        ));
     }
 
     #[test]

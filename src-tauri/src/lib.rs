@@ -44,7 +44,9 @@ pub fn run() {
         .manage(AppState::new(settings))
         .setup(|app| {
             // The in-Steam plugin's backend, and the injector that puts it on the store page. Both are
-            // harmless when Steam is closed: the injector's polls fail fast and the API simply waits.
+            // Windows-only: macOS and Linux remove any debug marker an older build left instead of opting
+            // Steam into remote debugging. When Steam is closed the injector's polls fail fast and the API
+            // simply waits.
             let state = app.state::<AppState>();
             // The CEF marker is dropped on quit (see the exit hook below), so put it back when the plugin is
             // installed: while this app runs is the only time the injected bundle can reach the bridge.
@@ -56,15 +58,17 @@ pub fn run() {
                     .unwrap_or_default();
                 plugin::ensure_marker_if_installed(&steam_path);
             }
-            // Older builds wrote Steam's library record as "update required", and Steam marks that app for
-            // download on its next start. Repair what is already on disk before Steam gets the chance.
+            // Steam keeps one library record per app, and a stub this app wrote can outlive Steam's own
+            // record for a game it has since installed elsewhere — two records, one of them empty, is how
+            // an installed game comes back as "Install". Repair what is on disk before Steam draws the
+            // library, and quiet any older stub that would start downloading by itself.
             {
                 let steam_path = state
                     .settings
                     .lock()
                     .map(|settings| settings.steam_path.clone())
                     .unwrap_or_default();
-                steam::heal_stub_flags(&steam_path);
+                steam::reconcile_library(&steam_path);
             }
             let token = local_api::bridge_token();
             local_api::LocalApi::start(

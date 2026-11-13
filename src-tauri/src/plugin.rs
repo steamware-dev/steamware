@@ -255,8 +255,17 @@ fn release_cdp_marker(steam_root: &Path) {
 #[cfg(not(windows))]
 fn release_cdp_marker(steam_root: &Path) {
     let marker = steam_root.join(CDP_MARKER);
+    // Compare the target's leaf, not its whole path: macOS gives each login session its own temporary
+    // directory, so an old marker can point at `/var/folders/.../steamware-cdp-marker` while today's
+    // `temp_dir()` is elsewhere. The distinctive name is what says this marker belongs to Steamware; a
+    // marker owned by Millennium or another loader has a different target and is left alone.
     let ours = std::fs::read_link(&marker)
-        .map(|target| target == unix_marker_target())
+        .ok()
+        .and_then(|target| {
+            target
+                .file_name()
+                .map(|name| name == std::ffi::OsStr::new("steamware-cdp-marker"))
+        })
         .unwrap_or(false);
     if ours {
         let _ = std::fs::remove_file(&marker);
@@ -704,5 +713,28 @@ mod tests {
         assert_eq!(digest_of(&asset).as_deref(), Some("abcd"));
         let missing = serde_json::json!({ "name": "plugin.zip", "digest": null });
         assert!(digest_of(&missing).is_none());
+    }
+
+    /// A marker created by an older build can point into a temporary folder that no longer exists, so
+    /// ownership is decided by the target's name. Millennium's marker must survive.
+    #[cfg(not(windows))]
+    #[test]
+    fn only_a_steamware_marker_is_released_by_name() {
+        use std::os::unix::fs::symlink;
+
+        let dir = std::env::temp_dir().join(format!("steamware-marker-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let marker = dir.join(CDP_MARKER);
+
+        symlink("/old/tmp/steamware-cdp-marker", &marker).unwrap();
+        release_cdp_marker(&dir);
+        assert!(std::fs::symlink_metadata(&marker).is_err(), "our old marker is removed");
+
+        symlink("/old/tmp/millennium-marker", &marker).unwrap();
+        release_cdp_marker(&dir);
+        assert!(std::fs::symlink_metadata(&marker).is_ok(), "another loader's marker is left alone");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

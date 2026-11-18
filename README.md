@@ -180,6 +180,6 @@ For support, use the [Discord](https://discord.gg/sf55KprmUx).
 
 ## Credits
 
-Steamware is built and maintained by **q4res**.
+Steamware is built and maintained by **jcimlas**.
 
 Thanks to everyone in the [Discord](https://discord.gg/sf55KprmUx) who runs test builds and reports what breaks.

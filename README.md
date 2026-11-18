@@ -107,7 +107,7 @@ The five flags were **Bkav Pro, DeepInstinct, Kaspersky, SecureAge, and Sophos**
 Get-FileHash .\Steamware_1.0.5_x64-setup.exe -Algorithm SHA256
 ```
 
-The v1.0.6 packages are being scanned one by one. Each result is added here with its own file name and SHA-256 as it completes, so a package with no listed scan has not been checked yet — that is not evidence either way. The explanation above applies to every build, signed or not.
+No v1.0.6 file has been submitted to VirusTotal yet. When a scan is published, its file name and SHA-256 will be added here; a package with no listed scan has not been checked, which is not evidence either way. The explanation above applies to every build, signed or not.
 
 A scan is a snapshot, not a guarantee. If the result makes you uncomfortable, do not run the file. If you want to inspect it first, use a virtual machine and download only from the official release page.
 
@@ -120,7 +120,7 @@ A scan is a snapshot, not a guarantee. If the result makes you uncomfortable, do
 
 | Platform | File |
 | --- | --- |
-| Windows 10/11 (x64) | `Steamware_1.0.6_x64-setup.exe` |
+| Windows 10/11 (x64) | `Steamware-1.0.6-x64-setup.exe` |
 | Windows 11 on ARM | `Steamware_1.0.6_arm64-setup.exe` |
 | Debian / Ubuntu (x64) | `Steamware_1.0.6_amd64.deb` |
 | Fedora / RHEL (x64) | `Steamware-1.0.6-2.x86_64.rpm` |

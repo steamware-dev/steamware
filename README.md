@@ -2,15 +2,15 @@
 
 # Steamware
 
-**A Windows desktop companion for your Steam library.**
+**A desktop companion for your Steam library — Windows, Linux and macOS.**
 
 Browse the store, inspect manifests and depots, keep builds, download fixes, and add a Steamware panel to Steam's store pages — without leaving your desktop.
 
 [![Latest release](https://img.shields.io/github/v/release/steamware-dev/steamware?style=flat-square&label=release)](https://github.com/steamware-dev/steamware/releases/latest)
 [![Discord](https://img.shields.io/discord/1280434554552717364?style=flat-square&logo=discord&logoColor=white&label=Discord)](https://discord.gg/sf55KprmUx)
-[![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?style=flat-square&logo=windows&logoColor=white)](#download)
+[![Platforms](https://img.shields.io/badge/Windows%20%7C%20Linux%20%7C%20macOS-2C2C2C?style=flat-square)](#download)
 
-[Download the latest release](https://github.com/steamware-dev/steamware/releases/latest) · [Join the Discord](https://discord.gg/sf55KprmUx) · [VirusTotal report](https://www.virustotal.com/gui/file/97c12915c0724424bd67cc5431cc417293ef62d8a3431b36f875d341504a80d3/detection)
+[Download the latest release](https://github.com/steamware-dev/steamware/releases/latest) · [Join the Discord](https://discord.gg/sf55KprmUx) · [VirusTotal (v1.0.5 scan)](https://www.virustotal.com/gui/file/97c12915c0724424bd67cc5431cc417293ef62d8a3431b36f875d341504a80d3/detection)
 
 </div>
 
@@ -18,17 +18,17 @@ Browse the store, inspect manifests and depots, keep builds, download fixes, and
 
 ## What is Steamware?
 
-Steamware is a free desktop app for **Windows 10 and 11**. It puts the useful parts of Steam library management in one place: the store, your library, depots and DLC, manifest downloads, saved builds, game fixes, and an optional panel inside Steam itself.
+Steamware is a free desktop app for **Windows 10 and 11**, and since v1.0.6 it also ships for **Linux (x64)** and **macOS (Intel and Apple Silicon)**. It puts the useful parts of Steam library management in one place: the store, your library, depots and DLC, manifest downloads, saved builds, game fixes, and an optional panel inside Steam itself.
 
 It is built for people who like to see what Steam is doing under the hood — not for people who want another launcher.
 
 | | |
 | --- | --- |
-| **Current release** | v1.0.5 for Windows 10/11 (64-bit) |
+| **Current release** | v1.0.6 for Windows, Linux and macOS |
 | **Catalog** | **158,000+ Steam games** (as of 6 November 2026) |
 | **Community** | **11,000+ members** in the Steamware Discord |
 | **Price** | Free |
-| **Installer size** | 2.84 MB |
+| **Installer size** | 2.75 MB (Windows x64) |
 | **Steam account** | Steam must be installed and signed in; Steamware never asks for your Steam password |
 
 > Steamware is not affiliated with Valve Corporation or Steam. Steam is a trademark of Valve.
@@ -80,7 +80,9 @@ All game files remain Steam's responsibility. Steamware only handles the metadat
 
 That behaviour is exactly what makes some antivirus engines suspicious.
 
-### VirusTotal — v1.0.5 installer
+### VirusTotal — the installers
+
+Scans are per file, and each package is uploaded separately. The most recent full scan is the **v1.0.5** Windows installer:
 
 [**Open the full VirusTotal report for `Steamware_1.0.5_x64-setup.exe`**](https://www.virustotal.com/gui/file/97c12915c0724424bd67cc5431cc417293ef62d8a3431b36f875d341504a80d3/detection)
 
@@ -105,6 +107,8 @@ The five flags were **Bkav Pro, DeepInstinct, Kaspersky, SecureAge, and Sophos**
 Get-FileHash .\Steamware_1.0.5_x64-setup.exe -Algorithm SHA256
 ```
 
+The v1.0.6 packages are being scanned one by one. Each result is added here with its own file name and SHA-256 as it completes, so a package with no listed scan has not been checked yet — that is not evidence either way. The explanation above applies to every build, signed or not.
+
 A scan is a snapshot, not a guarantee. If the result makes you uncomfortable, do not run the file. If you want to inspect it first, use a virtual machine and download only from the official release page.
 
 ---
@@ -112,11 +116,21 @@ A scan is a snapshot, not a guarantee. If the result makes you uncomfortable, do
 ## Download
 
 1. Open the [latest release](https://github.com/steamware-dev/steamware/releases/latest).
-2. Download `Steamware_1.0.5_x64-setup.exe`.
-3. Run the installer. Windows SmartScreen may warn because the build is unsigned; choose **More info → Run anyway** only if you downloaded it from this repository.
-4. Confirm the SHA-256 above before running it.
+2. Pick the package for your platform:
 
-**Requirements:** Windows 10 or 11, 64-bit, with Steam installed. The current public release is Windows only.
+| Platform | File |
+| --- | --- |
+| Windows 10/11 (x64) | `Steamware_1.0.6_x64-setup.exe` |
+| Windows 11 on ARM | `Steamware_1.0.6_arm64-setup.exe` |
+| Debian / Ubuntu (x64) | `Steamware_1.0.6_amd64.deb` |
+| Fedora / RHEL (x64) | `Steamware-1.0.6-2.x86_64.rpm` |
+| macOS Intel | `Steamware_1.0.6_x64.dmg` |
+| macOS Apple Silicon | `Steamware_1.0.6_aarch64.dmg` |
+
+3. Run it. On Windows, SmartScreen may warn because the build is unsigned; choose **More info → Run anyway** only if you downloaded it from this repository. On macOS, use the normal **Open Anyway** flow — the builds are ad-hoc signed, not notarised.
+4. Check the SHA-256 values in `SHA256SUMS-1.0.6.txt` before running anything.
+
+**Requirements:** Steam installed and signed in. Windows 10 or 11 (x64 or ARM64), a 64-bit Linux distribution, or macOS on Intel or Apple Silicon. The in-Steam store panel and in-app updates are Windows-only; on Linux and macOS, Steamware opens the release page instead.
 
 ---
 
@@ -154,10 +168,10 @@ It downloads manifests, fixes, and the metadata needed for the features you use.
 The installer is not code-signed. SmartScreen treats unknown publishers conservatively, especially for tools that modify other applications.
 
 **Why does my antivirus flag it?**  
-The app is unsigned and the optional plugin/loader interacts with Steam's process and local files. Check the VirusTotal report and hash above, and use a VM if you want to inspect it before running it.
+The app is unsigned and the optional plugin/loader interacts with Steam's process and local files. Check the VirusTotal reports and hashes above, and use a VM if you want to inspect it before running it.
 
 **Does it work on Linux or macOS?**  
-The current public release is Windows x64 only. Other platform builds are not part of this release.
+Yes, as of v1.0.6 there are native packages for Linux x64 and for macOS on Intel and Apple Silicon. The in-Steam store panel and in-app updates are Windows-only; on Linux and macOS the app points you at the release page instead.
 
 **Can I remove the plugin or loader?**  
 Yes. The plugin and loader can be removed from Steamware, and the app shows what it wrote.

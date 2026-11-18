@@ -175,3 +175,11 @@ No. Steamware is an independent project. Steam and Valve are trademarks of Valve
 This repository hosts the **public README and release downloads** for Steamware. It does not contain the Steamware application source code.
 
 For support, use the [Discord](https://discord.gg/sf55KprmUx).
+
+---
+
+## Credits
+
+Steamware is built and maintained by **q4res**.
+
+Thanks to everyone in the [Discord](https://discord.gg/sf55KprmUx) who runs test builds and reports what breaks.
